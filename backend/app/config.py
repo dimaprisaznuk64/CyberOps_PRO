@@ -12,6 +12,11 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://cyberops:cyberops@localhost:5432/cyberops"
 
+    celery_broker_url: str = "redis://localhost:6379/0"
+
+    scan_allow_public: bool = False
+    nmap_timeout_seconds: int = 300
+
     jwt_secret: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30

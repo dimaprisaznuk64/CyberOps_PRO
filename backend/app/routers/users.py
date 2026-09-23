@@ -19,7 +19,10 @@ async def me(user: User = Depends(get_current_user)):
 
 
 @router.get("", response_model=list[UserOut])
-async def list_users(_: User = Depends(require_admin), session: AsyncSession = Depends(get_session)):
+async def list_users(
+    _: User = Depends(require_admin),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.scalars(select(User).order_by(User.id))
     return list(result.all())
 

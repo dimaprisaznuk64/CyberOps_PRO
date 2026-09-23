@@ -24,7 +24,7 @@ jobs:
 
       - name: Ruff check
         working-directory: backend
-        run: python -m ruff check app tests
+        run: python -m ruff check app tests ../workers ../services
 
       - name: Tests
         working-directory: backend

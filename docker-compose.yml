@@ -15,12 +15,24 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
     environment:
       APP_ENV: dev
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
@@ -29,6 +41,23 @@ services:
       - "8000:8000"
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: workers/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
+      CELERY_BROKER_URL: redis://redis:6379/0
+      SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
+      NMAP_TIMEOUT_SECONDS: ${NMAP_TIMEOUT_SECONDS:-300}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
 volumes:
