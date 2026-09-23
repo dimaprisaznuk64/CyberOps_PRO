@@ -24,8 +24,8 @@ class Scan(Base):
     __tablename__ = "scans"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    target_id: Mapped[int] = mapped_column(
-        ForeignKey("targets.id", ondelete="CASCADE"), nullable=False, index=True
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, index=True
     )
     created_by: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -44,5 +44,9 @@ class Scan(Base):
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    risk_score: Mapped[int | None] = mapped_column(nullable=True)
+    risk_level: Mapped[str | None] = mapped_column(String(10), nullable=True)
 
-    target = relationship("Target", back_populates="scans")
+    asset = relationship("Asset", back_populates="scans")
+    services = relationship("Service", back_populates="scan", cascade="all, delete-orphan")
+    findings = relationship("Finding", back_populates="scan", cascade="all, delete-orphan")

@@ -3,9 +3,9 @@ from __future__ import annotations
 from tests.conftest import login
 
 
-async def _create_target(client, token: str) -> int:
+async def _create_asset(client, token: str) -> int:
     resp = await client.post(
-        "/api/v1/targets",
+        "/api/v1/assets",
         json={"name": "web", "host": "127.0.0.1"},
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -20,7 +20,7 @@ async def test_role_user_cannot_scan(client):
     token = await login(client, "viewer", "password123")
     resp = await client.post(
         "/api/v1/scans",
-        json={"target_id": 1},
+        json={"asset_id": 1},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
@@ -29,11 +29,11 @@ async def test_role_user_cannot_scan(client):
 async def test_analyst_creates_scan_and_enqueues(client, scan_queue):
     token = await login(client, "analyst", "analyst1234")
     headers = {"Authorization": f"Bearer {token}"}
-    target_id = await _create_target(client, token)
+    asset_id = await _create_asset(client, token)
 
     resp = await client.post(
         "/api/v1/scans",
-        json={"target_id": target_id, "scan_type": "quick", "ports": "22,80"},
+        json={"asset_id": asset_id, "scan_type": "quick", "ports": "22,80"},
         headers=headers,
     )
     assert resp.status_code == 202, resp.text
@@ -51,20 +51,20 @@ async def test_analyst_creates_scan_and_enqueues(client, scan_queue):
 
 async def test_invalid_scan_type_rejected(client):
     token = await login(client, "analyst", "analyst1234")
-    target_id = await _create_target(client, token)
+    asset_id = await _create_asset(client, token)
     resp = await client.post(
         "/api/v1/scans",
-        json={"target_id": target_id, "scan_type": "evil"},
+        json={"asset_id": asset_id, "scan_type": "evil"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 422
 
 
-async def test_missing_target_rejected(client):
+async def test_missing_asset_rejected(client):
     token = await login(client, "analyst", "analyst1234")
     resp = await client.post(
         "/api/v1/scans",
-        json={"target_id": 999},
+        json={"asset_id": 999},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 404
@@ -73,9 +73,9 @@ async def test_missing_target_rejected(client):
 async def test_get_scan_result(client):
     token = await login(client, "analyst", "analyst1234")
     headers = {"Authorization": f"Bearer {token}"}
-    target_id = await _create_target(client, token)
+    asset_id = await _create_asset(client, token)
     resp = await client.post(
-        "/api/v1/scans", json={"target_id": target_id}, headers=headers
+        "/api/v1/scans", json={"asset_id": asset_id}, headers=headers
     )
     scan_id = resp.json()["id"]
 

@@ -6,6 +6,7 @@ from app.database import Base, get_session
 from app.main import app
 from app.models.user import User
 from app.services.auth import hash_password
+from app.services.events import CollectingPublisher, get_publisher
 from app.tasks import get_task_enqueuer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -41,14 +42,23 @@ def scan_queue():
     return _enqueue
 
 
+@pytest.fixture
+def event_publisher():
+    publisher = CollectingPublisher()
+    app.dependency_overrides[get_publisher] = lambda: publisher
+    yield publisher
+    app.dependency_overrides.pop(get_publisher, None)
+
+
 @pytest_asyncio.fixture
-async def client(session_factory, scan_queue):
+async def client(session_factory, scan_queue, event_publisher):
     async def _get_session():
         async with session_factory() as session:
             yield session
 
     app.dependency_overrides[get_session] = _get_session
     app.dependency_overrides[get_task_enqueuer] = lambda: scan_queue
+    app.state.audit_session_factory = session_factory
 
     async with session_factory() as session:
         session.add_all(
@@ -67,6 +77,7 @@ async def client(session_factory, scan_queue):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+    app.state.audit_session_factory = None
 
 
 async def login(client: AsyncClient, username: str, password: str) -> str:

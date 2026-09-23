@@ -65,6 +65,7 @@ def parse_nmap_xml(xml_text: str) -> dict[str, Any]:
         for port in host.findall("ports/port"):
             state_el = port.find("state")
             service_el = port.find("service")
+            cpe_el = port.find("service/cpe") if service_el is not None else None
             ports.append(
                 {
                     "port": int(port.attrib.get("portid", 0)),
@@ -77,6 +78,7 @@ def parse_nmap_xml(xml_text: str) -> dict[str, Any]:
                     "version": (
                         service_el.attrib.get("version", "") if service_el is not None else ""
                     ),
+                    "cpe": cpe_el.text.strip() if cpe_el is not None and cpe_el.text else "",
                 }
             )
 

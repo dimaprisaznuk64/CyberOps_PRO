@@ -8,9 +8,8 @@ from sqlalchemy import pool
 
 from app.config import settings
 from app.database import Base
+import app.models  # noqa: F401  (реєстрація всіх моделей)
 from app.models.scan import Scan  # noqa: F401
-from app.models.target import Target  # noqa: F401
-from app.models.user import User  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

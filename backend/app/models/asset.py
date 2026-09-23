@@ -8,12 +8,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 
-class Target(Base):
-    __tablename__ = "targets"
+class Asset(Base):
+    __tablename__ = "assets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     host: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="ip", nullable=False)
+    docker_container: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
@@ -22,4 +24,4 @@ class Target(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    scans = relationship("Scan", back_populates="target", cascade="all, delete-orphan")
+    scans = relationship("Scan", back_populates="asset", cascade="all, delete-orphan")

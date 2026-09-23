@@ -17,7 +17,9 @@ SAMPLE_XML = """<?xml version="1.0"?>
     <ports>
       <port protocol="tcp" portid="22">
         <state state="open"/>
-        <service name="ssh" product="OpenSSH" version="9.0"/>
+        <service name="ssh" product="OpenSSH" version="9.0">
+          <cpe>cpe:/a:openbsd:openssh:9.0</cpe>
+        </service>
       </port>
       <port protocol="tcp" portid="80">
         <state state="closed"/>
@@ -61,6 +63,7 @@ def test_parse_nmap_xml():
     assert ssh["service"] == "ssh"
     assert ssh["product"] == "OpenSSH"
     assert ssh["version"] == "9.0"
+    assert ssh["cpe"] == "cpe:/a:openbsd:openssh:9.0"
 
 
 def test_parse_invalid_xml():

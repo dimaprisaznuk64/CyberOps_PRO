@@ -14,6 +14,17 @@ class Settings(BaseSettings):
 
     celery_broker_url: str = "redis://localhost:6379/0"
 
+    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
+    events_exchange: str = "cyberops.events"
+    events_enabled: bool = True
+
+    realtime_mode: str = "memory"
+    realtime_channel: str = "cyberops:ws"
+
+    tracing_enabled: bool = False
+    otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    worker_metrics_port: int = 9091
+
     scan_allow_public: bool = False
     nmap_timeout_seconds: int = 300
 

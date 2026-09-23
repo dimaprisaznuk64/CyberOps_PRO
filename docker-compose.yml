@@ -25,13 +25,31 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
-      context: ./backend
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       APP_ENV: dev
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
       CELERY_BROKER_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
+      REALTIME_MODE: ${REALTIME_MODE:-redis}
       SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
@@ -44,6 +62,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   worker:
     build:
@@ -52,6 +72,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
       CELERY_BROKER_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+      EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
+      REALTIME_MODE: ${REALTIME_MODE:-redis}
       SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       NMAP_TIMEOUT_SECONDS: ${NMAP_TIMEOUT_SECONDS:-300}
     depends_on:
@@ -59,6 +82,29 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
 
 volumes:
   pgdata:

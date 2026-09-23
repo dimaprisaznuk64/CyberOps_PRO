@@ -15,4 +15,4 @@ COPY services/ services/
 
 ENV PYTHONPATH=/repo/backend:/repo
 
-CMD ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info"]
+CMD ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8" />
+<title>CyberOps Dashboard</title>
+<style>
+  :root { --bg:#0f1117; --panel:#171a23; --line:#2a2f3e; --txt:#e6e8ee; --muted:#8b93a7; --acc:#4f8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 system-ui, Segoe UI, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; padding:14px 20px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0 12px 0 0; }
+  input { background:#0b0d13; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; min-width:220px; }
+  button { background:var(--acc); color:#fff; border:0; border-radius:8px; padding:8px 14px; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .wrap { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:20px; }
+  .cards { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .card b { font-size:26px; display:block; }
+  .card span { color:var(--muted); font-size:12px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:12px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); }
+  th { color:var(--muted); font-size:12px; text-transform:uppercase; }
+  .pill { padding:2px 8px; border-radius:999px; font-size:11px; }
+  .low, .info { background:#223; color:#8fd0ff; }
+  .medium { background:#33240f; color:#ffc86b; }
+  .high { background:#3a1f12; color:#ff9a6b; }
+  .critical { background:#3a1216; color:#ff6b7a; }
+  .event { display:flex; gap:10px; padding:8px 0; border-bottom:1px dashed var(--line); align-items:baseline; }
+  .event time { color:var(--muted); font-size:12px; white-space:nowrap; }
+  .muted { color:var(--muted); }
+  @media (max-width:900px){ .wrap{ grid-template-columns:1fr; } .cards{ grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>CyberOps Dashboard</h1>
+  <input id="base" value="http://localhost:8000" placeholder="API URL" />
+  <input id="token" placeholder="JWT access token" style="min-width:320px" />
+  <button id="connect">Підключити WebSocket</button>
+  <button id="refresh">Оновити</button>
+  <span id="status" class="muted"></span>
+</header>
+
+<div class="wrap">
+  <div>
+    <div class="panel">
+      <h3>Події в реальному часі</h3>
+      <div id="events"><div class="muted">Немає підключення</div></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="cards">
+      <div class="card"><span>Непрочитані сповіщення</span><b id="unread">0</b></div>
+      <div class="card"><span>Активи</span><b id="assets">0</b></div>
+      <div class="card"><span>Скани з високим ризиком</span><b id="high">0</b></div>
+    </div>
+
+    <div class="panel">
+      <h3>Останні сканування</h3>
+      <table>
+        <thead><tr><th>ID</th><th>Тип</th><th>Статус</th><th>Ризик</th><th>Завершено</th></tr></thead>
+        <tbody id="scans"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let ws = null;
+
+function logHTML(text, cls) {
+  const div = document.createElement('div');
+  div.className = 'event';
+  div.innerHTML = `<time>${new Date().toLocaleTimeString()}</time><span>${text}</span>`;
+  if (cls) div.querySelector('span').classList.add('pill', cls);
+  $('events').prepend(div);
+}
+
+function riskClass(level) { return (level || 'low').toLowerCase().replace('high', 'high').replace('critical', 'critical'); }
+
+async function refresh() {
+  const base = $('base').value.replace(/\/$/, '');
+  const token = $('token').value;
+  if (!token) { $('status').textContent = 'введіть токен'; return; }
+  const res = await fetch(`${base}/api/v1/dashboard`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) { $('status').textContent = `HTTP ${res.status}`; return; }
+  const data = await res.json();
+  $('unread').textContent = data.unread_notifications;
+  $('assets').textContent = data.total_assets;
+  $('high').textContent = data.high_risk_scans;
+  $('scans').innerHTML = data.recent_scans.map((s) =>
+    `<tr><td>${s.id}</td><td>${s.scan_type}</td><td>${s.status}</td>` +
+    `<td><span class="pill ${riskClass(s.risk_level)}">${s.risk_level || '—'}</span></td>` +
+    `<td>${s.finished_at ? new Date(s.finished_at).toLocaleString() : '—'}</td></tr>`
+  ).join('') || '<tr><td colspan="5" class="muted">Немає даних</td></tr>';
+  $('status').textContent = 'оновлено';
+}
+
+function connect() {
+  const base = $('base').value.replace(/\/$/, '');
+  const token = $('token').value;
+  if (!token) { $('status').textContent = 'введіть токен'; return; }
+  const proto = base.startsWith('https') ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${base.replace(/^https?:\/\//, '')}/ws?token=${encodeURIComponent(token)}`);
+  ws.onopen = () => { $('status').textContent = 'підключено'; logHTML('WebSocket підключено'); };
+  ws.onclose = (e) => { $('status').textContent = 'закрито'; logHTML(`WebSocket закрито (${e.code})`); };
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'scan.completed') {
+      logHTML(`Сканування #${msg.scan_id} завершено · ризик ${msg.risk_level || '?'}`, riskClass(msg.risk_level));
+      refresh();
+    } else if (msg.type === 'notification.created') {
+      logHTML(`Сповіщення: ${msg.title}`, msg.severity === 'critical' ? 'critical' : 'info');
+      refresh();
+    } else {
+      logHTML(JSON.stringify(msg));
+    }
+  };
+}
+
+$('connect').onclick = connect;
+$('refresh').onclick = refresh;
+</script>
+</body>
+</html>
