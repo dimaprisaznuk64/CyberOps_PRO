@@ -20,7 +20,7 @@ web-dashboard.
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
-| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація, demo |
+| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅ |
 
 ## Ролі (RBAC)
 
@@ -42,7 +42,8 @@ CyberOps_PRO/
 ├── security-lab/       # навмисно вразливі: vulnerable-api, vulnerable-web, test-db
 ├── monitoring/         # Prometheus, Grafana, Jaeger
 ├── infrastructure/     # kubernetes (kustomize) manifests, terraform (aws)
-├── docs/
+├── docs/               # architecture, deployment, demo
+├── scripts/            # demo.py (end-to-end demo через Gateway)
 ├── scripts/
 ├── docker-compose.yml
 ├── Makefile
