@@ -1,0 +1,8 @@
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+httpx==0.*
+python-jose[cryptography]==3.*
+pydantic==2.*
+pydantic-settings==2.*
+prometheus-client==0.21.*
+websockets==12.*

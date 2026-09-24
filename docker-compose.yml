@@ -1,3 +1,20 @@
+x-backend-service: &backend-service
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  environment: &backend-environment
+    APP_ENV: dev
+    DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
+    CELERY_BROKER_URL: redis://redis:6379/0
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
+    REALTIME_MODE: ${REALTIME_MODE:-redis}
+    SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
+    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+    ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
+    CORS_ORIGINS: ${CORS_ORIGINS:-*}
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -39,30 +56,59 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    environment:
-      APP_ENV: dev
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:-cyberops}@postgres:5432/${POSTGRES_DB:-cyberops}
-      CELERY_BROKER_URL: redis://redis:6379/0
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
-      EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
-      REALTIME_MODE: ${REALTIME_MODE:-redis}
-      SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
-      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+  core:
+    <<: *backend-service
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8001
     ports:
-      - "8000:8000"
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+
+  auth:
+    <<: *backend-service
+    command: uvicorn app.auth_app:app --host 0.0.0.0 --port 8002
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    environment:
+      AUTH_SERVICE_URL: http://auth:8002
+      CORE_SERVICE_URL: http://core:8001
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    depends_on:
+      core:
+        condition: service_healthy
+      auth:
         condition: service_healthy
 
   worker:
@@ -92,7 +138,7 @@ services:
     ports:
       - "9090:9090"
     depends_on:
-      - backend
+      - gateway
 
   grafana:
     image: grafana/grafana:11.1.0

@@ -3,9 +3,15 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: cyberops
+  - job_name: cyberops-gateway
     static_configs:
-      - targets: ["backend:8000"]
+      - targets: ["gateway:8000"]
+  - job_name: cyberops-core
+    static_configs:
+      - targets: ["core:8001"]
+  - job_name: cyberops-auth
+    static_configs:
+      - targets: ["auth:8002"]
   - job_name: cyberops-worker
     static_configs:
       - targets: ["worker:9091"]

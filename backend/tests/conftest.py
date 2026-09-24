@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
+from app.auth_app import app as auth_app
 from app.database import Base, get_session
-from app.main import app
+from app.main import app as core_app
 from app.models.user import User
 from app.services.auth import hash_password
 from app.services.events import CollectingPublisher, get_publisher
@@ -11,6 +12,8 @@ from app.tasks import get_task_enqueuer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+from gateway.main import app as gateway_app
 
 
 @pytest_asyncio.fixture
@@ -45,9 +48,9 @@ def scan_queue():
 @pytest.fixture
 def event_publisher():
     publisher = CollectingPublisher()
-    app.dependency_overrides[get_publisher] = lambda: publisher
+    core_app.dependency_overrides[get_publisher] = lambda: publisher
     yield publisher
-    app.dependency_overrides.pop(get_publisher, None)
+    core_app.dependency_overrides.pop(get_publisher, None)
 
 
 @pytest_asyncio.fixture
@@ -56,9 +59,15 @@ async def client(session_factory, scan_queue, event_publisher):
         async with session_factory() as session:
             yield session
 
-    app.dependency_overrides[get_session] = _get_session
-    app.dependency_overrides[get_task_enqueuer] = lambda: scan_queue
-    app.state.audit_session_factory = session_factory
+    for service_app in (core_app, auth_app):
+        service_app.dependency_overrides[get_session] = _get_session
+        service_app.dependency_overrides[get_task_enqueuer] = lambda: scan_queue
+        service_app.state.audit_session_factory = session_factory
+
+    gateway_app.state.upstreams = {
+        "auth": AsyncClient(transport=ASGITransport(app=auth_app), base_url="http://auth"),
+        "core": AsyncClient(transport=ASGITransport(app=core_app), base_url="http://core"),
+    }
 
     async with session_factory() as session:
         session.add_all(
@@ -73,11 +82,13 @@ async def client(session_factory, scan_queue, event_publisher):
         )
         await session.commit()
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=gateway_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
-    app.dependency_overrides.clear()
-    app.state.audit_session_factory = None
+    for service_app in (core_app, auth_app):
+        service_app.dependency_overrides.clear()
+        service_app.state.audit_session_factory = None
+    gateway_app.state.upstreams = None
 
 
 async def login(client: AsyncClient, username: str, password: str) -> str:

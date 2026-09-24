@@ -15,11 +15,9 @@ web-dashboard.
 | 0.2 | ✅ | Redis, Celery, worker, Nmap-сканер, Targets, Scans, етичний guard (лише приватні адреси) |
 | 0.3 | ✅ | Nmap-parser (CPE), Services, Findings, Risk Score |
 | 0.4 | ✅ | RabbitMQ-події, Notifications, Reports, Audit Logs |
-| **0.5** | ✅ | WebSocket, real-time dashboard, тести E2E |
-| 0.6 | 🔜 | Prometheus, Grafana, structured logs, OpenTelemetry |
 | 0.5 | ✅ | WebSocket, real-time dashboard, тести E2E |
 | 0.6 | ✅ | Prometheus, Grafana, structured logs, OpenTelemetry |
-| 0.7 | 📋 | Microservices, API Gateway |
+| **0.7** | ✅ | Microservices, API Gateway |
 | 0.8 | 📋 | Kubernetes, CI/CD |
 | 0.9 | 📋 | Terraform, Cloud |
 | 1.0 | 📋 | Security Lab, AI Assistant, документація, demo |
@@ -36,7 +34,8 @@ web-dashboard.
 
 ```text
 CyberOps_PRO/
-├── backend/            # FastAPI + PostgreSQL + Alembic
+├── gateway/            # API Gateway (FastAPI): маршрутизація, JWT-гейт, заголовки identity
+├── backend/            # FastAPI: core (assets/scans/findings/...) + auth (app.auth_app)
 ├── frontend/           # Next.js / React (з 0.3+)
 ├── services/scanner/   # Nmap: build_command, run_nmap, parse_nmap_xml
 ├── workers/            # Celery worker (Redis broker)
@@ -59,12 +58,20 @@ cp .env.example .env
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r backend/requirements.txt
+pip install -r gateway/requirements.txt
 cd backend
 alembic upgrade head
-uvicorn app.main:app --reload
 ```
 
-**З Docker (API + worker + Redis):**
+Запуск трьох процесів (окремі термінали):
+
+```bash
+uvicorn app.main:app --reload                    # core          -> :8001
+uvicorn app.auth_app:app --reload --port 8002    # auth          -> :8002
+cd .. && uvicorn gateway.main:app --reload --port 8000  # gateway -> :8000
+```
+
+**З Docker (API Gateway + core + auth + worker + Redis):**
 
 ```bash
 docker compose up -d --build
@@ -75,11 +82,45 @@ docker compose up -d --build
 ```bash
 cd backend
 python -m pytest tests -q       # тести
-python -m ruff check app tests  # лінт
-curl http://localhost:8000/health
+python -m ruff check app tests ../workers ../services ../gateway  # лінт
+curl http://localhost:8000/health    # gateway /health (агрегує services)
+curl http://localhost:8001/health    # core
+curl http://localhost:8002/health    # auth
 ```
 
-## API (v0.6)
+## Microservices та API Gateway (v0.7)
+
+Застосунок розділено на два незалежні FastAPI-сервіси, перед якими стоїть
+**API Gateway** (`gateway/`) — єдина публічна точка входу на порту `8000`.
+
+| Компонент | Порт | Відповідальність |
+|---|---|---|
+| `gateway` | 8000 (публічний) | маршрутизація за префіксом, централізована перевірка JWT, інжекція `X-User-*` заголовків, агрегація `/health`, метрики, WebSocket-relay |
+| `auth` | 8002 (внутрішній) | `/api/v1/auth*`, `/api/v1/users*`, `/api/v1/audit-logs` |
+| `core` | 8001 (внутрішній) | assets, scans, findings, notifications, reports, dashboard, `/ws`, статичний дашборд `/dashboard` |
+| `worker` | 9091 (метрики) | Celery + Nmap, публікує події RabbitMQ/Redis |
+
+**Маршрутизація:** префікси `/api/v1/auth`, `/api/v1/users`, `/api/v1/audit-logs`
+ідуть в `auth`; решта `/api/v1/*`, `/dashboard` та `/ws` — в `core`.
+
+**Безпека на межі (edge):**
+- Публічні шляхи (login/register/refresh) проходять без токена.
+- Для решти `/api/*` Gateway сам перевіряє access-токен (той самий `JWT_SECRET`).
+- Gateway викидає будь-які клієнтські `X-User-*`-заголовки і підставляє
+  `X-User-Id`, `X-User-Role`, `X-User-Username` з claims токена; додає
+  `X-Forwarded-For` (audit-лог фіксує реальну IP клієнта).
+- Сервіси незалежно перевіряють токен (defense-in-depth) та дивляться роль у БД.
+
+**WebSocket:** `/ws` на Gateway виконує relay до `core` (`/ws?token=`), тому
+дашборд продовжує працювати як раніше на `http://localhost:8000/dashboard`.
+
+**Спільне:** сервіси використовують спільну БД та модельний шар (`backend/app`),
+що спрощує розвиток; повний поділ на per-service БД — план на v0.8+.
+
+> Swagger: core — `:8001/docs`, auth — `:8002/docs`, Gateway — `:8000/docs`
+> (у gateway лише власні health/metrics; повний API див. нижче).
+
+## API (v0.7, через Gateway)
 
 | Метод | Шлях | Доступ |
 |---|---|---|
@@ -170,7 +211,10 @@ Swagger: `http://localhost:8000/docs`
 
 ### Observability (v0.6)
 
-- **Prometheus** — `/metrics` віддає метрики: `http_requests_total`
+- **Prometheus** — scrape-таргетів тепер чотири: `gateway:8000` (метрики
+  gateway: `gateway_requests_total`, `gateway_ws_connections_total`),
+  `core:8001` і `auth:8002` (`http_requests_total`, `scan_*` — на core),
+  `worker:9091` (скан-процеси). `/metrics` віддає: `http_requests_total`
   (method, path-баcket, status), `scan_duration_seconds` (histogram),
   `scan_results_total` (status, risk_level), `scan_services_total`.
 - **Grafana** — профільно provisioned дашборд `monitoring/grafana/provisioning`

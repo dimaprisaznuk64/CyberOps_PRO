@@ -32,12 +32,14 @@ async def audit_middleware(request: Request, call_next) -> Response:
     if factory is None:
         return response
     user_agent = (request.headers.get("user-agent") or "")[:USER_AGENT_MAX] or None
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    client_ip = forwarded or (request.client.host if request.client else None)
     entry = AuditLog(
         user_id=_bearer_user_id(request),
         method=request.method,
         path=path,
         status_code=response.status_code,
-        client_ip=request.client.host if request.client else None,
+        client_ip=client_ip,
         user_agent=user_agent,
     )
     async with factory() as session:

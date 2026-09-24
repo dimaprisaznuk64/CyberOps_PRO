@@ -48,8 +48,12 @@ async def login(payload: UserLogin, session: AsyncSession = Depends(get_session)
     user.last_login_at = datetime.now(UTC)
     await session.commit()
     return Token(
-        access_token=create_token(user.id, "access"),
-        refresh_token=create_token(user.id, "refresh"),
+        access_token=create_token(
+            user.id, "access", role=user.role, username=user.username
+        ),
+        refresh_token=create_token(
+            user.id, "refresh", role=user.role, username=user.username
+        ),
     )
 
 
@@ -65,8 +69,12 @@ async def refresh(
     if user is None or not user.is_active:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Користувач неактивний")
     return Token(
-        access_token=create_token(user.id, "access"),
-        refresh_token=create_token(user.id, "refresh"),
+        access_token=create_token(
+            user.id, "access", role=user.role, username=user.username
+        ),
+        refresh_token=create_token(
+            user.id, "refresh", role=user.role, username=user.username
+        ),
     )
 
 

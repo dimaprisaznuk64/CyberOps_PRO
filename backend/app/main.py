@@ -13,8 +13,6 @@ from app.config import settings
 from app.database import SessionLocal
 from app.routers import (
     assets,
-    audit,
-    auth,
     dashboard,
     findings,
     health,
@@ -22,7 +20,6 @@ from app.routers import (
     notifications,
     reports,
     scans,
-    users,
     ws,
 )
 from app.services.audit import audit_middleware
@@ -54,8 +51,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CyberOps Platform PRO",
-    version="0.6.0",
+    title="CyberOps Core Service",
+    version="0.7.0",
     lifespan=lifespan,
 )
 
@@ -73,14 +70,11 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=audit_middleware)
 
 app.include_router(health.router)
 app.include_router(metrics.router)
-app.include_router(auth.router)
-app.include_router(users.router)
 app.include_router(assets.router)
 app.include_router(scans.router)
 app.include_router(findings.router)
 app.include_router(notifications.router)
 app.include_router(reports.router)
-app.include_router(audit.router)
 app.include_router(dashboard.router)
 app.include_router(ws.router)
 
