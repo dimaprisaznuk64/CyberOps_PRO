@@ -51,16 +51,16 @@ export default function DashboardPage() {
         <div className="panel">
           <h3>Статус системи</h3>
           {!health && <div className="muted">Завантаження…</div>}
-          {health?.services.map((s) => (
-            <div key={s.service} className="event-line">
-              <span
-                className={`status-dot ${s.status === "200" ? "ok" : "bad"}`}
-              />
-              <span>{s.service}</span>
-              <span className="muted small">{s.method}</span>
-              <span className="muted small">{s.status}</span>
-            </div>
-          ))}
+          {health &&
+            Object.entries(health.services).map(([service, status]) => (
+              <div key={service} className="event-line">
+                <span
+                  className={`status-dot ${status === "ok" ? "ok" : "bad"}`}
+                />
+                <span>{service}</span>
+                <span className="muted small">{status}</span>
+              </div>
+            ))}
         </div>
 
         <div className="panel">

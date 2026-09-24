@@ -134,13 +134,7 @@ export interface DashboardStats {
   recent_scans: ScanBrief[];
 }
 
-export interface HealthServiceStatus {
-  service: string;
-  method: string;
-  status: string;
-}
-
 export interface Health {
   status: string;
-  services: HealthServiceStatus[];
+  services: Record<string, string>;
 }
