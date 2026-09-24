@@ -15,6 +15,7 @@ resources:
   - auth.yaml
   - gateway.yaml
   - worker.yaml
+  - frontend.yaml
   - prometheus.yaml
   - grafana.yaml
 

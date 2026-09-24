@@ -60,3 +60,13 @@ jobs:
           file: gateway/Dockerfile
           push: true
           tags: ${{ steps.img.outputs.registry }}/cyberops-gateway:${{ steps.img.outputs.tag }}
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8000
+          tags: ${{ steps.img.outputs.registry }}/cyberops-frontend:${{ steps.img.outputs.tag }}

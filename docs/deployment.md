@@ -10,7 +10,7 @@ docker compose up -d --build
 ```
 
 Сервіси: `gateway :8000`, `core :8001`, `auth :8002`, `worker`, `postgres :5432`,
-`redis :6379`, `rabbitmq :5672 (+15672)`, `prometheus :9090`, `grafana :3000`.
+`redis :6379`, `rabbitmq :5672 (+15672)`, `prometheus :9090`, `grafana :3001`.
 
 Перевірка:
 

@@ -22,6 +22,7 @@ jobs:
           kind load docker-image cyberops/cyberops-backend:latest
           kind load docker-image cyberops/cyberops-worker:latest
           kind load docker-image cyberops/cyberops-gateway:latest
+          kind load docker-image cyberops/cyberops-frontend:latest
 
       - name: Validate kustomize build
         run: kubectl kustomize infrastructure/kubernetes/overlays/dev > /dev/null
@@ -34,7 +35,7 @@ jobs:
 
       - name: Wait rollouts
         run: |
-          for d in postgres redis rabbitmq core auth gateway worker prometheus grafana; do
+          for d in postgres redis rabbitmq core auth gateway worker frontend prometheus grafana; do
             kubectl -n cyberops rollout status deployment/$d --timeout=240s
           done
 

@@ -20,7 +20,7 @@ web-dashboard.
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
-| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅ |
+| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
 
 ## Ролі (RBAC)
 
@@ -36,7 +36,7 @@ web-dashboard.
 CyberOps_PRO/
 ├── gateway/            # API Gateway (FastAPI): маршрутизація, JWT-гейт, заголовки identity
 ├── backend/            # FastAPI: core (assets/scans/findings/...) + auth (app.auth_app)
-├── frontend/           # Next.js / React (з 0.3+)
+├── frontend/           # Next.js / React (App Router) UI: dashboard, assets, scans, findings, reports
 ├── services/scanner/   # Nmap: build_command, run_nmap, parse_nmap_xml
 ├── workers/            # Celery worker (Redis broker)
 ├── security-lab/       # навмисно вразливі: vulnerable-api, vulnerable-web, test-db
@@ -44,7 +44,6 @@ CyberOps_PRO/
 ├── infrastructure/     # kubernetes (kustomize) manifests, terraform (aws)
 ├── docs/               # architecture, deployment, demo
 ├── scripts/            # demo.py (end-to-end demo через Gateway)
-├── scripts/
 ├── docker-compose.yml
 ├── Makefile
 └── README.md
@@ -72,11 +71,22 @@ uvicorn app.auth_app:app --reload --port 8002    # auth          -> :8002
 cd .. && uvicorn gateway.main:app --reload --port 8000  # gateway -> :8000
 ```
 
-**З Docker (API Gateway + core + auth + worker + Redis):**
+**З Docker (API Gateway + core + auth + worker + Redis + frontend):**
 
 ```bash
 docker compose up -d --build
 ```
+
+**Фронтенд без Docker (dev, окремий термінал):**
+
+```bash
+cd frontend
+npm install
+npm run dev              # -> http://localhost:3000
+```
+
+`NEXT_PUBLIC_API_URL` (за замовчуванням `http://localhost:8000`) задає адресу
+API Gateway, яку використовує браузер.
 
 **Перевірка:**
 
@@ -100,6 +110,7 @@ curl http://localhost:8002/health    # auth
 | `auth` | 8002 (внутрішній) | `/api/v1/auth*`, `/api/v1/users*`, `/api/v1/audit-logs` |
 | `core` | 8001 (внутрішній) | assets, scans, findings, notifications, reports, dashboard, `/ws`, статичний дашборд `/dashboard` |
 | `worker` | 9091 (метрики) | Celery + Nmap, публікує події RabbitMQ/Redis |
+| `frontend` | 3000 (UI) | Next.js dashboards, звертається до Gateway з браузера |
 
 **Маршрутизація:** префікси `/api/v1/auth`, `/api/v1/users`, `/api/v1/audit-logs`
 ідуть в `auth`; решта `/api/v1/*`, `/dashboard` та `/ws` — в `core`.
@@ -129,7 +140,7 @@ curl http://localhost:8002/health    # auth
 infrastructure/kubernetes/
 ├── kustomization.yaml     # root -> base
 ├── base/                  # namespace, config, secrets, postgres, redis, rabbitmq,
-│                          # migrations Job, core, auth, gateway, worker, prometheus, grafana
+│                          # migrations Job, core, auth, gateway, worker, frontend, prometheus, grafana
 ├── overlays/dev/          # dev overlay (= base, для kind-розгортання)
 └── base/grafana/          # provisioning (datasource, dashboards) як ConfigMap
 ```
@@ -138,7 +149,7 @@ infrastructure/kubernetes/
   (`app.main` на 8001, `app.auth_app` на 8002); `worker` і `gateway` — окремі образи.
 - `migrations` — одноразовий **Job** (`alembic upgrade head`).
 - Probes: `readiness/liveness` HTTP `/health` у всіх сервісів.
-- Gateway — `NodePort 30080`, Grafana — `NodePort 30300`.
+- Gateway — `NodePort 30080`, Grafana — `NodePort 30300`, frontend — `NodePort 30010`.
 - Prometheus scrape-таргети через DNS: `gateway:8000`, `core:8001`,
   `auth:8002`, `worker:9091`.
 
@@ -146,11 +157,11 @@ infrastructure/kubernetes/
 (за замовчуванням `cyberops/*:latest`):
 
 ```bash
-docker compose build          # збирає cyberops/cyberops-{backend,worker,gateway}:latest
+docker compose build          # збирає cyberops/cyberops-{backend,worker,gateway,frontend}:latest
 ```
 
 **CI/CD (GitHub Actions, `.github/workflows/`):**
-- `ci.yml` — тести + ruff + `docker compose config -q` + `kubectl kustomize` валідація.
+- `ci.yml` — тести + ruff + `docker compose config -q` + `kubectl kustomize` валідація + frontend (npm ci, typecheck, build).
 - `docker.yml` — збірка та push образів до `ghcr.io/<owner>/<repo>`:
   on push до `master` — тег `dev`, on tag `v*` — тег версії без `v`.
 - `deploy.yml` — **kind E2E**: збирає образи, створює kind-кластер, застосовує
@@ -161,7 +172,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 ```bash
 docker compose build
 kind create cluster
-kind load docker-image cyberops/cyberops-backend:latest cyberops/cyberops-worker:latest cyberops/cyberops-gateway:latest
+kind load docker-image cyberops/cyberops-backend:latest cyberops/cyberops-worker:latest cyberops/cyberops-gateway:latest cyberops/cyberops-frontend:latest
 kubectl apply -k infrastructure/kubernetes/overlays/dev
 kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
 kubectl -n cyberops rollout status deploy/gateway --timeout=240s
@@ -258,6 +269,25 @@ Finding → AI Assistant → explanation + impact + risk_explanation + remediati
 При збої LLM чи некоректній відповіді автоматично спрацьовує fallback на правила.
 Відповідь містить `provider` (`rule` або `api/<model>`) для прозорості.
 
+## Frontend (v1.0)
+
+Next.js 14 (App Router, React 18, TypeScript, без сторонніх CSS-бібліотек —
+власний темний UI), розміщений у `frontend/`.
+
+```text
+frontend/
+├── src/lib/        # types (моделі API), api (fetch + токени), auth (AuthProvider), ws (useRealtime)
+├── src/components/ # Nav, RequireAuth, StatCard, Pills, AIExplain
+└── src/app/        # dashboard, assets, scans, scans/[id], findings, reports, notifications, settings
+```
+
+- Аутентифікація через Gateway (`/api/v1/auth/login`); токени в `localStorage`.
+- Real-time події (`scan.completed`, `notification.created`) через `/ws`.
+- AI Assistant: кнопка «Explain» біля кожного finding.
+- Збірка: `Dockerfile` (node:20-alpine, `npm ci` → static export/next start :3000),
+  сервіс у `docker-compose.yml` (порт 3000), k8s-mаніфест `base/frontend.yaml`
+  (`NodePort 30010`), GHCR-image `cyberops-frontend`, job у `ci.yml`.
+
 ## API (v0.7, через Gateway)
 
 | Метод | Шлях | Доступ |
@@ -301,8 +331,11 @@ Swagger: `http://localhost:8000/docs`
 **WebSocket:** `ws://localhost:8000/ws?token=<access_token>` — real-time події
 (`scan.completed`, `notification.created`) для поточного користувача.
 
-**Dashboard:** `http://localhost:8000/dashboard/` — статичний real-time дашборд:
-підключення до `/ws`, оновлення статистики `/api/v1/dashboard`.
+**Dashboard:** `http://localhost:3000` — фронтенд Next.js (`frontend/`):
+підключення до `/ws`, статистика `/api/v1/dashboard`.
+
+> Старий однофайловий дашборд: `http://localhost:8000/dashboard/`
+> (`frontend/index.html`) — лишається для зворотної сумісності.
 
 ### Сканування (етика)
 
@@ -358,7 +391,7 @@ Swagger: `http://localhost:8000/docs`
   `scan_results_total` (status, risk_level), `scan_services_total`.
 - **Grafana** — профільно provisioned дашборд `monitoring/grafana/provisioning`
   (джерело Prometheus + панелі трафіку, тривалості скан-запусків, ризиків);
-  `http://localhost:3000` (admin/admin).
+  `http://localhost:3001` (admin/admin).
 - **Structured logs** — `LOG_JSON=true` перемикає логери на JSON-формат
   (`ts, level, logger, message` + додаткові поля).
 - **OpenTelemetry** — `TRACING_ENABLED=true` + `OTLP_ENDPOINT` підключає

@@ -27,7 +27,7 @@
 | `backend app.auth_app` (auth) | FastAPI | 8002 | register / login / refresh / roles / users |
 | `worker` | Celery + Redis | 9091 (metrics) | запуск Nmap, парсинг, derive_findings, risk score |
 | `services/scanner` | python-nmap | — | `build_command`, `run_nmap`, `parse_nmap_xml` |
-| `monitoring` | Prometheus + Grafana | 9090 / 3000 | метрики й дашборди |
+| `monitoring` | Prometheus + Grafana | 9090 / 3001 | метрики й дашборди |
 
 ## Потоки даних
 
