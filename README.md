@@ -20,7 +20,7 @@ web-dashboard.
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
-| 1.0 | 📋 | Security Lab, AI Assistant, документація, demo |
+| **1.0** | 🔄 | Security Lab ✅, AI Assistant, документація, demo |
 
 ## Ролі (RBAC)
 
@@ -39,7 +39,7 @@ CyberOps_PRO/
 ├── frontend/           # Next.js / React (з 0.3+)
 ├── services/scanner/   # Nmap: build_command, run_nmap, parse_nmap_xml
 ├── workers/            # Celery worker (Redis broker)
-├── security-lab/       # навчальні vulnerable-сервіси
+├── security-lab/       # навмисно вразливі: vulnerable-api, vulnerable-web, test-db
 ├── monitoring/         # Prometheus, Grafana, Jaeger
 ├── infrastructure/     # kubernetes (kustomize) manifests, terraform (aws)
 ├── docs/
@@ -197,6 +197,43 @@ terraform apply -var key_name=my-key
 ```
 
 Outputs: `public_ip`, `ssh_command`, `gateway_url` (gateway:8000).
+
+## Security Lab (v1.0)
+
+Навмисно вразливий локальний стенд для практики: `security-lab/`.
+
+> **ВАЖЛИВО:** сервіси вразливі за задумом. Порти привʼязані тільки до
+> `127.0.0.1`, стенд підключається до мережі `cyberops_default` лише для
+> сканування з CyberOps. Дозволено використовувати тільки на власній машині.
+
+```text
+security-lab/
+├── vulnerable-api/      # FastAPI: SQLi, command injection, IDOR, слабка авторизація, витік секретів (8100)
+├── vulnerable-web/      # Flask: XSS, open redirect, path traversal, дефолтні креденшени, небезпечні cookies (8101)
+├── test-db/             # PostgreSQL: слабкі креденшени lab/lab123, plaintext-паролі, картки (55432)
+└── docker-compose.yml
+```
+
+**Запуск** (спершу основний стек, щоб створилася мережа `cyberops_default`):
+
+```bash
+docker compose up -d --build            # корінь проєкту
+docker compose -f security-lab/docker-compose.yml up -d --build
+```
+
+**Які цілі конфігурувати в CyberOps (Dashboard → Assets):**
+- `vulnerable-api` — HTTP API (81xx на локальній машині не потрібен, у
+  системі скануємо за імʼям: `http://vulnerable-api:8000` або IP контейнера)
+- `vulnerable-web` — `http://vulnerable-web:8001`
+- `test-db` — `5432/tcp PostgreSQL` (слабкий пароль → Finding
+  «Exposed PostgreSQL»)
+
+**Практика:** Nmap з хоста (`nmap -sV -p- 127.0.0.1`), потім у Web та API:
+SQLi (`/api/users?name=' OR '1'='1`), command injection (`/api/ping?host=;whoami`),
+IDOR (`/api/user/1`), path traversal (`/files?name=../../etc/passwd`),
+XSS (`/search?q=<script>`), open redirect (`/redirect?url=https://evil.local`).
+
+**Скидання БД:** `docker compose -f security-lab/docker-compose.yml down -v && docker compose -f security-lab/docker-compose.yml up -d`
 
 ## API (v0.7, через Gateway)
 
