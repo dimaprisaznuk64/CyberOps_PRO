@@ -1,0 +1,52 @@
+name: Deploy (kind)
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  kind-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Create kind cluster
+        uses: helm/kind-action@v1.10.0
+
+      - name: Load images
+        run: |
+          kind load docker-image cyberops/cyberops-backend:latest
+          kind load docker-image cyberops/cyberops-worker:latest
+          kind load docker-image cyberops/cyberops-gateway:latest
+
+      - name: Validate kustomize build
+        run: kubectl kustomize infrastructure/kubernetes/overlays/dev > /dev/null
+
+      - name: Deploy manifests
+        run: kubectl apply -k infrastructure/kubernetes/overlays/dev
+
+      - name: Wait migrations
+        run: kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
+
+      - name: Wait rollouts
+        run: |
+          for d in postgres redis rabbitmq core auth gateway worker prometheus grafana; do
+            kubectl -n cyberops rollout status deployment/$d --timeout=240s
+          done
+
+      - name: Smoke test (via gateway)
+        run: |
+          kubectl -n cyberops port-forward svc/gateway 8000:8000 &
+          PID=$!
+          sleep 8
+          curl -fsS http://localhost:8000/health
+          echo
+          kill $PID 2>/dev/null || true
+
+      - name: Pods
+        if: always()
+        run: kubectl -n cyberops get pods -o wide

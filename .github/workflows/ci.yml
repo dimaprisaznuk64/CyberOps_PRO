@@ -32,3 +32,6 @@ jobs:
 
       - name: Compose validation
         run: docker compose config -q
+
+      - name: Kubernetes manifests validation
+        run: kubectl kustomize infrastructure/kubernetes/overlays/dev > /dev/null

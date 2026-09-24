@@ -1,4 +1,5 @@
 x-backend-service: &backend-service
+  image: ${IMAGE_PREFIX:-cyberops}/cyberops-backend:${IMAGE_TAG:-latest}
   build:
     context: .
     dockerfile: backend/Dockerfile
@@ -95,6 +96,7 @@ services:
         condition: service_healthy
 
   gateway:
+    image: ${IMAGE_PREFIX:-cyberops}/cyberops-gateway:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: gateway/Dockerfile
@@ -112,6 +114,7 @@ services:
         condition: service_healthy
 
   worker:
+    image: ${IMAGE_PREFIX:-cyberops}/cyberops-worker:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: workers/Dockerfile

@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: cyberops
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - postgres.yaml
+  - redis.yaml
+  - rabbitmq.yaml
+  - migrations.yaml
+  - core.yaml
+  - auth.yaml
+  - gateway.yaml
+  - worker.yaml
+  - prometheus.yaml
+  - grafana.yaml
+
+configMapGenerator:
+  - name: grafana-provisioning
+    options:
+      disableNameSuffixHash: true
+    files:
+      - datasources/datasource.yaml=grafana/datasource.yaml
+      - dashboards/dashboards.yaml=grafana/dashboards.yaml
+      - dashboards/cyberops.json=grafana/cyberops.json

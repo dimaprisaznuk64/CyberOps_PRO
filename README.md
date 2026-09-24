@@ -18,7 +18,8 @@ web-dashboard.
 | 0.5 | ✅ | WebSocket, real-time dashboard, тести E2E |
 | 0.6 | ✅ | Prometheus, Grafana, structured logs, OpenTelemetry |
 | **0.7** | ✅ | Microservices, API Gateway |
-| 0.8 | 📋 | Kubernetes, CI/CD |
+| **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
+| 0.9 | 📋 | Terraform, Cloud |
 | 0.9 | 📋 | Terraform, Cloud |
 | 1.0 | 📋 | Security Lab, AI Assistant, документація, demo |
 
@@ -41,7 +42,7 @@ CyberOps_PRO/
 ├── workers/            # Celery worker (Redis broker)
 ├── security-lab/       # навчальні vulnerable-сервіси
 ├── monitoring/         # Prometheus, Grafana, Jaeger
-├── infrastructure/     # docker, kubernetes, terraform
+├── infrastructure/     # kubernetes (kustomize) manifests, terraform
 ├── docs/
 ├── scripts/
 ├── docker-compose.yml
@@ -119,6 +120,53 @@ curl http://localhost:8002/health    # auth
 
 > Swagger: core — `:8001/docs`, auth — `:8002/docs`, Gateway — `:8000/docs`
 > (у gateway лише власні health/metrics; повний API див. нижче).
+
+## Kubernetes та CI/CD (v0.8)
+
+**Манифести** (`infrastructure/kubernetes/`, kustomize base + overlay):
+
+```text
+infrastructure/kubernetes/
+├── kustomization.yaml     # root -> base
+├── base/                  # namespace, config, secrets, postgres, redis, rabbitmq,
+│                          # migrations Job, core, auth, gateway, worker, prometheus, grafana
+├── overlays/dev/          # dev overlay (= base, для kind-розгортання)
+└── base/grafana/          # provisioning (datasource, dashboards) як ConfigMap
+```
+
+- `core`/`auth` використовують один образ `cyberops-backend` з різними командами
+  (`app.main` на 8001, `app.auth_app` на 8002); `worker` і `gateway` — окремі образи.
+- `migrations` — одноразовий **Job** (`alembic upgrade head`).
+- Probes: `readiness/liveness` HTTP `/health` у всіх сервісів.
+- Gateway — `NodePort 30080`, Grafana — `NodePort 30300`.
+- Prometheus scrape-таргети через DNS: `gateway:8000`, `core:8001`,
+  `auth:8002`, `worker:9091`.
+
+**Образи:** compass tags задаються через `IMAGE_PREFIX`/`IMAGE_TAG`
+(за замовчуванням `cyberops/*:latest`):
+
+```bash
+docker compose build          # збирає cyberops/cyberops-{backend,worker,gateway}:latest
+```
+
+**CI/CD (GitHub Actions, `.github/workflows/`):**
+- `ci.yml` — тести + ruff + `docker compose config -q` + `kubectl kustomize` валідація.
+- `docker.yml` — збірка та push образів до `ghcr.io/<owner>/<repo>`:
+  on push до `master` — тег `dev`, on tag `v*` — тег версії без `v`.
+- `deploy.yml` — **kind E2E**: збирає образи, створює kind-кластер, застосовує
+  overlay, чекає migrations Job і rollout, тест `/health` через порт-форвард gateway:8000.
+
+**Локальне деплоювання в kind:**
+
+```bash
+docker compose build
+kind create cluster
+kind load docker-image cyberops/cyberops-backend:latest cyberops/cyberops-worker:latest cyberops/cyberops-gateway:latest
+kubectl apply -k infrastructure/kubernetes/overlays/dev
+kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
+kubectl -n cyberops rollout status deploy/gateway --timeout=240s
+kubectl -n cyberops port-forward svc/gateway 8000:8000
+```
 
 ## API (v0.7, через Gateway)
 

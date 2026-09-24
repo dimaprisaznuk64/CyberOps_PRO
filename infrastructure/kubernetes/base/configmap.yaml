@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cyberops-config
+data:
+  APP_ENV: prod
+  # NOTE: DATABASE_URL містить dev-пароль для простоти демо. У продакшені
+  # збирайте URL з секретів (or use a cloud DB engine).
+  DATABASE_URL: postgresql+asyncpg://cyberops:cyberops@postgres:5432/cyberops
+  CELERY_BROKER_URL: redis://redis:6379/0
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+  EVENTS_ENABLED: "true"
+  REALTIME_MODE: redis
+  SCAN_ALLOW_PUBLIC: "false"
+  NMAP_TIMEOUT_SECONDS: "300"
+  CORS_ORIGINS: "*"
+  AUTH_SERVICE_URL: http://auth:8002
+  CORE_SERVICE_URL: http://core:8001
+  WORKER_METRICS_PORT: "9091"
