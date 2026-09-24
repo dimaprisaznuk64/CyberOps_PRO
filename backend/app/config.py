@@ -40,5 +40,11 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = "admin"
 
+    ai_provider: str = ""
+    ai_model: str = "gpt-4o-mini"
+    ai_base_url: str = "http://localhost:11434/v1"
+    ai_api_key: str = ""
+    ai_timeout_seconds: float = 30.0
+
 
 settings = Settings()

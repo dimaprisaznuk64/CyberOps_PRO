@@ -12,6 +12,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.config import settings
 from app.database import SessionLocal
 from app.routers import (
+    ai,
     assets,
     dashboard,
     findings,
@@ -73,6 +74,7 @@ app.include_router(metrics.router)
 app.include_router(assets.router)
 app.include_router(scans.router)
 app.include_router(findings.router)
+app.include_router(ai.router)
 app.include_router(notifications.router)
 app.include_router(reports.router)
 app.include_router(dashboard.router)

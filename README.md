@@ -20,7 +20,7 @@ web-dashboard.
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
-| **1.0** | 🔄 | Security Lab ✅, AI Assistant, документація, demo |
+| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація, demo |
 
 ## Ролі (RBAC)
 
@@ -235,6 +235,28 @@ XSS (`/search?q=<script>`), open redirect (`/redirect?url=https://evil.local`).
 
 **Скидання БД:** `docker compose -f security-lab/docker-compose.yml down -v && docker compose -f security-lab/docker-compose.yml up -d`
 
+## AI Security Assistant (v1.0)
+
+Для кожної знахідки (`Finding`) платформа пояснює: **що знайдено**, **чому це
+проблема**, **який вплив** та **як виправити**.
+
+```
+Finding → AI Assistant → explanation + impact + risk_explanation + remediation
+```
+
+**Ендпоінт:** `POST /api/v1/findings/{id}/explain` (RBAC: власник/analyst/admin).
+
+**Провайдери** (`backend/app/services/ai_assistant.py`):
+- `AI_PROVIDER=` (порожньо) — локальні правила: шаблони за severity/service;
+  працює без інтернету і покривається тестами.
+- `AI_PROVIDER=ollama` — локальна LLM (Ollama, OpenAI-сумісний `/v1`):
+  `AI_BASE_URL=http://localhost:11434/v1`, `AI_MODEL=llama3.2`.
+- `AI_PROVIDER=openai` / `openai-compatible` — будь-який OpenAI-сумісний API:
+  `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`.
+
+При збої LLM чи некоректній відповіді автоматично спрацьовує fallback на правила.
+Відповідь містить `provider` (`rule` або `api/<model>`) для прозорості.
+
 ## API (v0.7, через Gateway)
 
 | Метод | Шлях | Доступ |
@@ -260,6 +282,7 @@ XSS (`/search?q=<script>`), open redirect (`/redirect?url=https://evil.local`).
 | GET | `/api/v1/scans/{id}/services` | owner / analyst / admin |
 | GET | `/api/v1/scans/{id}/risk` | owner / analyst / admin |
 | GET | `/api/v1/findings` | owner (свої) / analyst / admin; фільтри `?severity=&scan_id=` |
+| POST | `/api/v1/findings/{id}/explain` | owner / analyst / admin (AI Assistant) |
 | POST | `/api/v1/reports` | analyst / admin (201; `report_type=asset\|scan`) |
 | GET | `/api/v1/reports` | owner (свої) / analyst / admin; фільтр `?report_type=` |
 | GET | `/api/v1/reports/{id}` | owner / analyst / admin |
