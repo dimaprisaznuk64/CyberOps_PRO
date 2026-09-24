@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 
 import app.models  # noqa: F401  (реєстрація всіх моделей для SQLAlchemy mapper)
 from app.config import settings
-from app.database import SessionLocal
 from app.models.finding import Finding
 from app.models.notification import Notification
 from app.models.scan import SCAN_DONE, SCAN_FAILED, SCAN_RUNNING, Scan
@@ -32,9 +31,21 @@ from app.services.realtime import (
 from app.services.tracing import get_tracer
 from celery import signals
 from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from services.scanner.nmap_runner import NmapError, build_command, parse_nmap_xml, run_nmap
 from workers.celery_app import celery_app, serve_metrics
+
+# Celery виконує кожен таск у власному event loop (asyncio.run), тому пул
+# з'єднань не можна перевикористовувати між тасками. NullPool закриває
+# з'єднання після кожного використання -> немає "Task attached to a different loop".
+_worker_engine = create_async_engine(
+    settings.database_url, poolclass=NullPool, future=True
+)
+SessionLocal = async_sessionmaker(
+    _worker_engine, expire_on_commit=False, class_=AsyncSession
+)
 
 
 @signals.worker_ready.connect
