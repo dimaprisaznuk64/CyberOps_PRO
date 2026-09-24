@@ -19,8 +19,7 @@ web-dashboard.
 | 0.6 | ✅ | Prometheus, Grafana, structured logs, OpenTelemetry |
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
-| 0.9 | 📋 | Terraform, Cloud |
-| 0.9 | 📋 | Terraform, Cloud |
+| **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
 | 1.0 | 📋 | Security Lab, AI Assistant, документація, demo |
 
 ## Ролі (RBAC)
@@ -42,7 +41,7 @@ CyberOps_PRO/
 ├── workers/            # Celery worker (Redis broker)
 ├── security-lab/       # навчальні vulnerable-сервіси
 ├── monitoring/         # Prometheus, Grafana, Jaeger
-├── infrastructure/     # kubernetes (kustomize) manifests, terraform
+├── infrastructure/     # kubernetes (kustomize) manifests, terraform (aws)
 ├── docs/
 ├── scripts/
 ├── docker-compose.yml
@@ -167,6 +166,37 @@ kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
 kubectl -n cyberops rollout status deploy/gateway --timeout=240s
 kubectl -n cyberops port-forward svc/gateway 8000:8000
 ```
+
+## Terraform / Cloud (v0.9)
+
+Модуль `infrastructure/terraform/aws/` піднімає одну EC2 (Ubuntu 22.04) з
+Security Group, EIP і user-data, який ставить Docker і розгортає стек через
+`docker compose up --build` прямо з Git (lift-and-shift, підходить для
+демо/старту; на продуцент використати управляний Postgres і ingress).
+
+```text
+infrastructure/terraform/aws/
+├── versions.tf      # terraform + providers (aws, random)
+├── variables.tf     # region, key_name, instance_type, repo_url/branch, cidr
+├── main.tf          # VPC Security Group, EC2, user_data, Elastic IP
+├── outputs.tf       # public_ip, ssh_command, gateway_url
+└── user-data.sh     # cloud-init: docker.io + git clone + compose up
+```
+
+- One EC2: `t3.medium` за замовчуванням (для `--build` образів), SSH-ключ —
+  існуючий key pair (`key_name`).
+- SG: `22` (SSH), `80/443`, `8000` (gateway).
+- `JWT_SECRET` генерується через `random_password` і вписується в `.env`.
+- Використання (потрібні AWS credentials):
+
+```bash
+cd infrastructure/terraform/aws
+terraform init
+terraform plan -var key_name=my-key
+terraform apply -var key_name=my-key
+```
+
+Outputs: `public_ip`, `ssh_command`, `gateway_url` (gateway:8000).
 
 ## API (v0.7, через Gateway)
 
