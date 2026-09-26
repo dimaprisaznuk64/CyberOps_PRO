@@ -16,6 +16,13 @@ data:
   CORS_ORIGINS: "*"
   AUTH_SERVICE_URL: http://auth:8002
   CORE_SERVICE_URL: http://core:8001
+  # Rate limiting gateway. Лічильник у пам'яті, тому replicas: 1 — інакше
+  # кожен под ділить N лімітів. Для масштабування потрібен спільний бекенд.
+  RATE_LIMIT_ENABLED: "true"
+  AUTH_RATE_LIMIT_PER_MINUTE: "5"
+  API_RATE_LIMIT_PER_MINUTE: "120"
+  SECURITY_HEADERS_ENABLED: "true"
+  HSTS_ENABLED: "true"
   WORKER_METRICS_PORT: "9091"
   # Канали сповіщень. SMTP_PASSWORD / TELEGRAM_BOT_TOKEN — у cyberops-secrets
   NOTIFICATIONS_ENABLED: "true"

@@ -14,12 +14,16 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from gateway.config import settings
+from gateway.headers import security_headers
 from gateway.helpers import (
+    AUTH_RATE_LIMITED_PATHS,
     PUBLIC_PATHS,
     RESPONSE_STRIPPED_HEADERS,
     build_forward_headers,
+    describe_path,
     resolve_service,
 )
+from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, Decision, TokenBucketLimiter
 from gateway.security import decode_access_token
 
 logger = logging.getLogger("gateway")
@@ -34,11 +38,19 @@ gateway_ws_connections_total = Counter(
     "WebSocket connections relayed by the API Gateway",
     ["outcome"],
 )
+gateway_rate_limited_total = Counter(
+    "gateway_rate_limited_total",
+    "Requests rejected by the rate limiter",
+    ["bucket", "path"],
+)
 
 METRICS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 
 MESSAGE_DENIED = JSONResponse({"detail": "Не авторизовано"}, status_code=401)
 MESSAGE_NOT_FOUND = JSONResponse({"detail": "Not Found"}, status_code=404)
+
+# Методи, які не витрачають квоту: preflight та перевірка живості
+_UNLIMITED_METHODS = frozenset({"OPTIONS", "HEAD"})
 
 
 def _bearer_token(request: Request) -> str | None:
@@ -51,6 +63,43 @@ def _bearer_token(request: Request) -> str | None:
 def _identity(request: Request) -> dict | None:
     token = _bearer_token(request)
     return decode_access_token(token) if token is not None else None
+
+
+def _limiters(request: Request) -> dict[str, TokenBucketLimiter]:
+    limiters = getattr(request.app.state, "limiters", None)
+    if limiters is None:
+        limiters = {
+            BUCKET_AUTH: TokenBucketLimiter(
+                settings.auth_rate_limit_per_minute,
+                burst=settings.auth_rate_limit_burst,
+                max_keys=settings.rate_limit_max_keys,
+            ),
+            BUCKET_API: TokenBucketLimiter(
+                settings.api_rate_limit_per_minute,
+                burst=settings.api_rate_limit_burst,
+                max_keys=settings.rate_limit_max_keys,
+            ),
+        }
+        request.app.state.limiters = limiters
+    return limiters
+
+
+def _rate_limit_key(request: Request, identity: dict | None, bucket: str) -> str:
+    # Авторизовані запити рахуємо за користувачем: інакше всі юзери за одним NAT
+    # (корпоративний вихід, CI) ділять один ліміт. Анонімні — тільки за IP.
+    if bucket == BUCKET_API and identity is not None and identity.get("sub") is not None:
+        return f"user:{identity['sub']}"
+    host = request.client.host if request.client else "unknown"
+    return f"ip:{host}"
+
+
+def _check_rate_limit(
+    request: Request, identity: dict | None, bucket: str
+) -> Decision | None:
+    if not settings.rate_limit_enabled or request.method in _UNLIMITED_METHODS:
+        return None
+    key = _rate_limit_key(request, identity, bucket)
+    return _limiters(request)[bucket].check(key)
 
 
 def _upstreams(app: FastAPI) -> dict[str, httpx.AsyncClient]:
@@ -97,6 +146,15 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    if settings.security_headers_enabled:
+        for key, value in security_headers(request.url.path).items():
+            response.headers.setdefault(key, value)
+    return response
+
+
 async def _forward(request: Request, identity: dict | None) -> Response:
     path = request.url.path
     if path.startswith("/dashboard"):
@@ -110,6 +168,30 @@ async def _forward(request: Request, identity: dict | None) -> Response:
             return MESSAGE_DENIED
     else:
         return MESSAGE_NOT_FOUND
+
+    if path.startswith("/api"):
+        bucket = BUCKET_AUTH if path in AUTH_RATE_LIMITED_PATHS else BUCKET_API
+        decision = _check_rate_limit(request, identity, bucket)
+        if decision is not None and not decision.allowed:
+            gateway_rate_limited_total.labels(
+                bucket=bucket, path=describe_path(path)
+            ).inc()
+            gateway_requests_total.labels(
+                service=service, method=request.method, status="429"
+            ).inc()
+            logger.warning(
+                "rate_limited",
+                extra={"bucket": bucket, "path": path, "method": request.method},
+            )
+            return JSONResponse(
+                {"detail": "Забагато запитів. Спробуйте пізніше."},
+                status_code=429,
+                headers={
+                    "Retry-After": str(decision.retry_after),
+                    "X-RateLimit-Limit": str(decision.limit),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
 
     body = await request.body()
     headers = build_forward_headers(

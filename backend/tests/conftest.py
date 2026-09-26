@@ -14,6 +14,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 from gateway.main import app as gateway_app
+from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, TokenBucketLimiter
+
+# Тести роблять сотні запитів з однієї адреси через ASGI-транспорт, тому
+# справжні лімії перевіряються окремо в test_ratelimit.py, а тут — практично
+# нескінченний ліміт, щоб тестовий набір не залежав від нього.
+TEST_LIMIT = 1_000_000
+TEST_LIMITERS = {
+    BUCKET_AUTH: TokenBucketLimiter(TEST_LIMIT, burst=TEST_LIMIT),
+    BUCKET_API: TokenBucketLimiter(TEST_LIMIT, burst=TEST_LIMIT),
+}
 
 
 @pytest_asyncio.fixture
@@ -80,6 +90,7 @@ async def client(session_factory, scan_queue, notification_queue, event_publishe
         "auth": AsyncClient(transport=ASGITransport(app=auth_app), base_url="http://auth"),
         "core": AsyncClient(transport=ASGITransport(app=core_app), base_url="http://core"),
     }
+    gateway_app.state.limiters = TEST_LIMITERS
 
     async with session_factory() as session:
         session.add_all(
@@ -101,6 +112,7 @@ async def client(session_factory, scan_queue, notification_queue, event_publishe
         service_app.dependency_overrides.clear()
         service_app.state.audit_session_factory = None
     gateway_app.state.upstreams = None
+    gateway_app.state.limiters = TEST_LIMITERS
 
 
 async def login(client: AsyncClient, username: str, password: str) -> str:

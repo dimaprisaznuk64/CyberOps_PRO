@@ -1,6 +1,18 @@
 from __future__ import annotations
 
+from typing import Any
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# HS256 за RFC 7518 очікує >= 256 біт ключа; коротший секрет — це не помилка
+# конфігурації, а реально слабка підписна база.
+MIN_JWT_SECRET_BYTES = 32
+PLACEHOLDER_SECRETS = {
+    "dev-secret-change-me-before-production",
+    "change-me-in-production-now",
+    "change-me-in-prod",
+}
 
 
 class Settings(BaseSettings):
@@ -28,10 +40,23 @@ class Settings(BaseSettings):
     scan_allow_public: bool = False
     nmap_timeout_seconds: int = 300
 
-    jwt_secret: str = "dev-secret-change-me"
+    jwt_secret: str = "dev-secret-change-me-before-production"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 30
     refresh_token_expire_days: int = 14
+
+    @field_validator("jwt_secret")
+    @classmethod
+    def _validate_jwt_secret(cls, value: str, info: Any) -> str:
+        if len(value.encode()) < MIN_JWT_SECRET_BYTES:
+            raise ValueError(
+                f"JWT_SECRET має бути не коротше {MIN_JWT_SECRET_BYTES} байт для "
+                f"{'HS256'}; зараз {len(value.encode())}. Згенеруйте: "
+                'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        if info.data.get("app_env") == "production" and value in PLACEHOLDER_SECRETS:
+            raise ValueError("JWT_SECRET досі є шаблонним — згенеруйте власний")
+        return value
 
     default_role: str = "user"
 

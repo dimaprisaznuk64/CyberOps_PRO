@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import subprocess
-import xml.etree.ElementTree as ET
 from typing import Any
+
+# nmap формує XML у відповідь на дані від сканованої цілі, тож це недовірений
+# ввід: defusedxml блокує entity expansion (billion laughs) та зовнішні DTD.
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 SCAN_PRESETS: dict[str, list[str]] = {
     "ping": ["-sn"],
@@ -49,7 +53,7 @@ def run_nmap(command: list[str], timeout: int = 300) -> str:
 def parse_nmap_xml(xml_text: str) -> dict[str, Any]:
     try:
         root = ET.fromstring(xml_text)
-    except ET.ParseError as exc:
+    except (ET.ParseError, DefusedXmlException) as exc:
         raise NmapError(f"Невалідний XML від nmap: {exc}") from exc
 
     result: dict[str, Any] = {

@@ -69,3 +69,17 @@ def test_parse_nmap_xml():
 def test_parse_invalid_xml():
     with pytest.raises(NmapError):
         parse_nmap_xml("not-xml")
+
+
+def test_parse_rejects_entity_expansion():
+    """XML приходить від сканованої цілі, тож billion laughs має бути відкинуто."""
+    bomb = (
+        '<?xml version="1.0"?>'
+        "<!DOCTYPE lolz [<!ENTITY lol 'lol'>"
+        '<!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">'
+        '<!ENTITY lol2 "&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;">'
+        "]>"
+        '<nmaprun><host><status state="&lol2;"/></host></nmaprun>'
+    )
+    with pytest.raises(NmapError):
+        parse_nmap_xml(bomb)

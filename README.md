@@ -124,6 +124,52 @@ curl http://localhost:8002/health    # auth
   `X-Forwarded-For` (audit-лог фіксує реальну IP клієнта).
 - Сервіси незалежно перевіряють токен (defense-in-depth) та дивляться роль у БД.
 
+**Rate limiting (v1.2):** token bucket у пам'яті процесу (`gateway/ratelimit.py`).
+
+| Група | Ліміт | Ключ |
+|---|---|---|
+| `login`, `register`, `refresh`, `change-password` | 5/хв | IP |
+| решта `/api/v1/*` | 120/хв | `sub` токена, а для анонімних — IP |
+
+Відмова — `429` з `Retry-After` та `X-RateLimit-Limit`/`-Remaining`, лічильник
+`gateway_rate_limited_total`. `/health` і `/metrics` не обмежені (інакше скринінг
+виглядав би недоступним). Перевірка токена йде **раніше** за ліміт, щоб не
+відповідати `429` на `401` — інакше ліміт можна використати як розвідник.
+
+> Лічильник живе в пам'яті, тому при `replicas > 1` кожен под рахує свій
+> ліміт (N подів = N× ліміт). У compose/K8s gateway однопроцесний; для
+> горизонтального масштабування потрібен спільний бекенд (Redis) — це вже
+> закладено в `redis` у стеку.
+
+**Security headers (v1.2):** middleware додає `Strict-Transport-Security`,
+`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
+no-referrer`, `Cross-Origin-Opener-Policy`, `Permissions-Policy` і CSP.
+Для API CSP максимально суворий — `default-src 'none'`. Legacy-дашборд
+`/dashboard` має інлайновий `<script>`/`<style>`, тому для нього окремий,
+послаблений CSP.
+
+**TLS (v1.2):** за замовчуванням Gateway слухає HTTP — TLS термінує
+балансувальник. Щоб увімкнути TLS на самому Gateway, покладіть `cert.pem`/
+`key.pem` у `./certs` (каталог у `.gitignore`) і задайте:
+
+```bash
+GATEWAY_TLS_CERTFILE=/certs/cert.pem
+GATEWAY_TLS_KEYFILE=/certs/key.pem
+GATEWAY_TLS_VERSION=2          # ssl.TLSVersion: 2 = TLSv1.2, 3 = лише TLSv1.3
+GATEWAY_TLS_CIPHERS=ECDHE+AESGCM:ECDHE+CHACHA20:ECDHE+AES256:ECDHE+AES128
+```
+
+`gateway/entrypoint.sh` перетворює їх на прапорці Uvicorn; якщо пару ключів
+не задано — працюємо звичайним HTTP.
+
+**Секрет підпису JWT:** `JWT_SECRET` має бути **не коротше 32 байт** (HMAC-SHA256),
+інакше застосунок не стартує з поясненням. У `APP_ENV=production` шаблонні
+значення теж відкидаються:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
 **WebSocket:** `/ws` на Gateway виконує relay до `core` (`/ws?token=`), тому
 дашборд продовжує працювати як раніше на `http://localhost:8000/dashboard`.
 
@@ -163,6 +209,18 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 **CI/CD (GitHub Actions, `.github/workflows/`):**
 - `ci.yml` — тести + ruff + `docker compose config -q` + `kubectl kustomize` валідація + frontend (npm ci, typecheck, build).
+- `security` job (v1.2) — Bandit (SAST, `-ll`), `pip-audit` (жорсткий gate:
+  падає на відомому CVE), Trivy (поки `continue-on-error`, базовий результат ще
+  не підтверджено на CI-образі), Semgrep `p/ci` — виконується, лише якщо
+  задано secret `SEMGREP_APP_TOKEN`.
+
+```bash
+cd backend
+python -m pytest tests -q                 # 127 тестів
+python -m ruff check app tests ../workers ../services ../gateway
+python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
+python -m pip_audit -r requirements.txt                        # відомі CVE
+```
 - `docker.yml` — збірка та push образів до `ghcr.io/<owner>/<repo>`:
   on push до `master` — тег `dev`, on tag `v*` — тег версії без `v`.
 - `deploy.yml` — **kind E2E**: збирає образи, створює kind-кластер, застосовує

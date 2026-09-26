@@ -18,6 +18,7 @@
 | v0.9 | ✅ | Terraform/AWS (EC2 + SG + EIP + user-data deploy) | `b5966bd` |
 | v1.0 | ✅ | Security Lab, AI Assistant, docs+demo, **Frontend (Next.js)** | `ac4dab3`, `a8fda16`, `fced99e`, `2244dae` |
 | v1.1 | ✅ | Канали сповіщень: Email (SMTP), Telegram, налаштування в UI | (поточний) |
+| v1.2 | ✅ | App Security: rate limiting, security headers, TLS, CI-сканування, 18 CVE | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -40,10 +41,27 @@
   - інфра: mailpit-профіль у compose, anchor `x-notify-environment`, k8s configmap/secret
     (+ `secretRef` у worker — без нього доставка не мала б паролів);
   - 31 тест (`tests/test_notification_channels.py`), всього 104.
-- **#16 App Security** — зараз тільки edge-валідація та RBAC. Додати:
-  - rate limiting на Gateway (login/register — до 5/хв, API — per-IP/token bucket);
-  - CI-сканування: Bandit (Python), pip-audit (залежності), Trivy (Docker-образи), Semgrep (ruleset py);
-  - hardening: ciphers/HTTP headers у gateway.
+- **#16 App Security** — ✅ закрито:
+  - rate limiting на Gateway (`gateway/ratelimit.py`, token bucket у пам'яті):
+    login/register/refresh/change-password — 5/хв за IP, решта API — 120/хв за
+    `sub` токена (анонімні — за IP, щоб не ділив ліміт весь NAT);
+    `429` + `Retry-After` + `X-RateLimit-*`, метрика `gateway_rate_limited_total`;
+    `/health` і `/metrics` не обмежені, ліміт не витікає через 401 (перевірка
+    токена раніше за ліміт); ключі чистяться, щоб ротація IP не роздувала пам'ять;
+  - security headers: суворий CSP (`default-src 'none'`) для API, окремий для
+    legacy `/dashboard` (там інлайновий скрипт), HSTS, `nosniff`, `DENY`,
+    `no-referrer`, COOP, Permissions-Policy;
+  - TLS на gateway через `gateway/entrypoint.sh` (TLS 1.2+, сучасні ciphers) —
+    за замовчуванням HTTP, бо TLS термінує балансувальник;
+  - CI: новий job `security` — Bandit (`-ll`, чисто), pip-audit (жорсткий gate),
+    Trivy (поки non-blocking), Semgrep (за наявності токена);
+  - знайдено й виправлено 18 CVE: fastapi `0.115 → 0.141`, starlette `0.46 → 1.7`
+    (без явного pin FastAPI тягнув би вразливу транзитивну), `python-jose → PyJWT`
+    (jose не підтримується, тягнув CVE в `ecdsa`), `pytest 8 → 9`;
+  - `JWT_SECRET` >= 32 байт (PyJWT попереджав про 20-байтний дефолт) + відмова
+    стартувати з шаблонним секретом у `APP_ENV=production`;
+  - nmap-XML тепер через `defusedxml` (XML залежить від відповідей цілі);
+  - 22 тести (`tests/test_ratelimit.py`, `tests/test_jwt_secret.py`), всього 127.
 - **#21 Jaeger** — OpenTelemetry-експортер OTLP вже є в коді (`TRACING_ENABLED`, `OTLP_ENDPOINT`), але Jaeger не в compose/terraform. Додати `jaeger` сервіс до compose (16686 UI, 4318 OTLP HTTP) + scrape/настройка.
 
 ## Ідеї / дрібниці (не обовʼязково)
@@ -63,6 +81,8 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (104)
+cd backend && python -m pytest tests -q # тести (127)
 cd frontend && npm run build && npx tsc --noEmit
+cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
+cd backend && python -m pip_audit -r requirements.txt                        # CVE
 ```

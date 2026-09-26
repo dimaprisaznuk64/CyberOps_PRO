@@ -8,6 +8,17 @@ PUBLIC_PATHS = {
     "/api/v1/auth/refresh",
 }
 
+# Анонімні ендпоінти, які небезпечно лишати без жорсткого ліміту:
+# перебір паролів і mass registration.
+AUTH_RATE_LIMITED_PATHS = frozenset(
+    {
+        "/api/v1/auth/login",
+        "/api/v1/auth/register",
+        "/api/v1/auth/refresh",
+        "/api/v1/auth/change-password",
+    }
+)
+
 STRIPPED_HEADERS = frozenset(
     {
         "connection",
@@ -28,6 +39,13 @@ RESPONSE_STRIPPED_HEADERS = frozenset({"connection", "keep-alive", "transfer-enc
 
 def resolve_service(path: str) -> str:
     return "auth" if path.startswith(AUTH_PREFIXES) else "core"
+
+
+def describe_path(path: str) -> str:
+    """Обрізає шлях до перших трьох сегментів, щоб метрики не роздувалися
+    через path-параметри (напр. /api/v1/notifications/12345)."""
+    parts = [part for part in path.strip("/").split("/") if part]
+    return "/" + "/".join(parts[:3])
 
 
 def build_forward_headers(

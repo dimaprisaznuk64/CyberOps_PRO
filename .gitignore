@@ -20,3 +20,7 @@ dist/
 crash.log
 override.tf
 terraform.tfvars
+
+# TLS-сертифікати gateway (не комітити)
+certs/*
+!certs/README.md

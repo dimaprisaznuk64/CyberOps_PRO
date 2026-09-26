@@ -36,6 +36,51 @@ jobs:
       - name: Kubernetes manifests validation
         run: kubectl kustomize infrastructure/kubernetes/overlays/dev > /dev/null
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Bandit (SAST)
+        # -ll = medium і вище; нижчі (B105/B404) не блокують збірку
+        run: |
+          python -m pip install --upgrade pip
+          pip install bandit
+          bandit -r backend/app backend/tests gateway workers services -ll
+
+      - name: pip-audit (залежності з відомим CVE)
+        run: |
+          pip install -r backend/requirements.txt pip-audit
+          pip-audit -r backend/requirements.txt
+
+      - name: Trivy (CVE у залежностях)
+        uses: aquasecurity/setup-trivy@v0.2.3
+        with:
+          version: v0.58.1
+
+      - name: Trivy scan
+        # поки non-blocking: базовий результат ще не підтверджено на CI-образі,
+        # після першого зеленого прогону прибрати continue-on-error
+        continue-on-error: true
+        run: |
+          trivy fs --scanners vuln --pkg-types python --severity HIGH,CRITICAL \
+            --ignore-unfixed --exit-code 1 .
+
+      - name: Semgrep (SAST у бекенді)
+        # запускається лише якщо задані креди бот-акаунта Semgrep
+        if: ${{ secrets.SEMGREP_APP_TOKEN != '' }}
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: p/ci
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+          SEMGREP_RULES: p/ci
+
   frontend:
     runs-on: ubuntu-latest
     steps:

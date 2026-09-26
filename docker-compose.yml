@@ -31,7 +31,7 @@ x-backend-service: &backend-service
     EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
     REALTIME_MODE: ${REALTIME_MODE:-redis}
     SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
-    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-before-production}
     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     CORS_ORIGINS: ${CORS_ORIGINS:-*}
@@ -124,8 +124,19 @@ services:
     environment:
       AUTH_SERVICE_URL: http://auth:8002
       CORE_SERVICE_URL: http://core:8001
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-before-production}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+      AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-5}
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-120}
+      SECURITY_HEADERS_ENABLED: ${SECURITY_HEADERS_ENABLED:-true}
+      HSTS_ENABLED: ${HSTS_ENABLED:-true}
+      # TLS на gateway вмикається цими змінними (сертифікат монтується в /certs).
+      # За замовчуванням gateway слухає HTTP — TLS термінує балансувальник.
+      GATEWAY_TLS_CERTFILE: ${GATEWAY_TLS_CERTFILE:-}
+      GATEWAY_TLS_KEYFILE: ${GATEWAY_TLS_KEYFILE:-}
+    volumes:
+      - ${TLS_CERTS_DIR:-./certs}:/certs:ro
     ports:
       - "8000:8000"
     depends_on:
