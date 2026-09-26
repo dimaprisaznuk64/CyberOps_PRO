@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     scan_allow_public: bool = False
     nmap_timeout_seconds: int = 300
+    # Скан вважається завислим, якщо довше за цей час не дійшов до finished_at.
+    # Запас має перекривати nmap_timeout_seconds, інакше reaper вб'є ще живий скан.
+    scan_stale_after_seconds: int = 900
+    scan_reaper_interval_seconds: int = 60
 
     jwt_secret: str = "dev-secret-change-me-before-production"
     jwt_algorithm: str = "HS256"

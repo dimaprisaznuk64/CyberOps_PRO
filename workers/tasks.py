@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 
 import app.models  # noqa: F401  (реєстрація всіх моделей для SQLAlchemy mapper)
@@ -37,6 +38,7 @@ from app.services.realtime import (
 from app.services.realtime import (
     publish_event as publish_realtime_event,
 )
+from app.services.scans import fail_stale_scans
 from app.services.tracing import get_tracer
 from app.tasks import enqueue_notification_delivery
 from celery import signals
@@ -46,6 +48,8 @@ from sqlalchemy.pool import NullPool
 
 from services.scanner.nmap_runner import NmapError, build_command, parse_nmap_xml, run_nmap
 from workers.celery_app import celery_app, serve_metrics
+
+logger = logging.getLogger("worker")
 
 # Celery виконує кожен таск у власному event loop (asyncio.run), тому пул
 # з'єднань не можна перевикористовувати між тасками. NullPool закриває
@@ -66,6 +70,26 @@ def _start_metrics_server(*_args, **_kwargs) -> None:
 @celery_app.task(name="workers.tasks.run_scan")
 def run_scan(scan_id: int, host: str, scan_type: str, ports: str | None) -> dict:
     return asyncio.run(_run_scan(scan_id, host, scan_type, ports))
+
+
+@celery_app.task(name="workers.tasks.reap_stale_scans")
+def reap_stale_scans() -> dict:
+    """Періодично (celery beat) переводить завислі скАНИ у failed.
+
+    Рядок може залишитись у pending/running, якщо воркер упав під час таску
+    або був убитий (OOM, рестарт контейнера) — тоді ніхто не оновить статус.
+    """
+
+    async def _reap() -> list[int]:
+        async with SessionLocal() as session:
+            return await fail_stale_scans(
+                session, stale_after_seconds=settings.scan_stale_after_seconds
+            )
+
+    stale = asyncio.run(_reap())
+    if stale:
+        logger.warning("stale_scans_failed", extra={"count": len(stale), "ids": stale})
+    return {"reaped": len(stale), "scan_ids": stale}
 
 
 async def _run_scan(

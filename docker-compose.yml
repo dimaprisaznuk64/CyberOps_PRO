@@ -169,6 +169,8 @@ services:
       REALTIME_MODE: ${REALTIME_MODE:-redis}
       SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       NMAP_TIMEOUT_SECONDS: ${NMAP_TIMEOUT_SECONDS:-300}
+      SCAN_STALE_AFTER_SECONDS: ${SCAN_STALE_AFTER_SECONDS:-900}
+      SCAN_REAPER_INTERVAL_SECONDS: ${SCAN_REAPER_INTERVAL_SECONDS:-60}
       # Воркер теж експортує спани (scan.run тощо), інакше довгі сканування
       # не видно в Jaeger — найцікавіші сліди саме звідти
       TRACING_ENABLED: ${TRACING_ENABLED:-true}

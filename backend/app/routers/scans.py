@@ -16,6 +16,7 @@ from app.models.user import User
 from app.schemas.scan import ScanCreate, ScanOut, ScanResultOut, ScanRiskOut
 from app.schemas.service import ServiceOut
 from app.services.netguard import HostNotAllowedError, assert_host_allowed
+from app.services.scans import mark_enqueue_failed
 from app.tasks import get_task_enqueuer
 
 router = APIRouter(prefix="/api/v1/scans", tags=["scans"])
@@ -62,7 +63,18 @@ async def create_scan(
     await session.commit()
     await session.refresh(scan)
 
-    enqueue(scan.id, asset.host, scan.scan_type, scan.ports)
+    # Рядок уже в БД, тож черга — єдине місце де ще можна зорізуватись.
+    # Якщо брокер недоступний, рядок інакше назавжди лишився б у pending.
+    try:
+        enqueue(scan.id, asset.host, scan.scan_type, scan.ports)
+    except Exception as exc:
+        await mark_enqueue_failed(
+            session, scan.id, f"Не вдалося поставити скан у чергу: {exc}"
+        )
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Черга завдань недоступна — скан не запущено",
+        ) from exc
     return scan
 
 

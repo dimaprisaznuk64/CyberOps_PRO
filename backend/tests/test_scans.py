@@ -83,3 +83,32 @@ async def test_get_scan_result(client):
     assert resp.status_code == 200
     assert resp.json()["id"] == scan_id
     assert resp.json()["result"] is None
+
+async def test_broker_down_does_not_leave_pending_scan(client, monkeypatch):
+    """Брокер недоступний -> 503 і скан одразу failed, а не назавжди pending."""
+    from app.main import app as core_app
+    from app.tasks import get_task_enqueuer
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("broker down")
+
+    # ключ override — той самий об'єкт, що підставленийDepends при імпорті
+    core_app.dependency_overrides[get_task_enqueuer] = lambda: _boom
+
+    token = await login(client, "analyst", "analyst1234")
+    headers = {"Authorization": f"Bearer {token}"}
+    asset_id = await _create_asset(client, token)
+
+    resp = await client.post(
+        "/api/v1/scans",
+        json={"asset_id": asset_id},
+        headers=headers,
+    )
+    assert resp.status_code == 503, resp.text
+
+    scans = await client.get("/api/v1/scans", headers=headers)
+    assert scans.status_code == 200
+    body = scans.json()
+    assert len(body) == 1
+    assert body[0]["status"] == "failed"
+    assert "чергу" in body[0]["error"]

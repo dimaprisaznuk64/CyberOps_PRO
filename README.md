@@ -406,6 +406,16 @@ Swagger: `http://localhost:8000/docs`
   доки `SCAN_ALLOW_PUBLIC=false` (за замовчуванням).
 - Сканування виконує `worker` (Celery + Nmap) поза API-процесом;
   статуси: `pending → running → done | failed`.
+- **Завислі скан не живуть вічно** (v1.4):
+  - якщо черга недоступна, API одразу переводить щойно створений скан у
+    `failed` і відповідає `503` — раніше рядок лишався `pending` назавжди;
+  - `worker` запускається з `-B` (celery beat) і раз на
+    `SCAN_REAPER_INTERVAL_SECONDS` запускає `workers.tasks.reap_stale_scans`,
+    який переводить у `failed` скан, що не дійшов до `finished_at` за
+    `SCAN_STALE_AFTER_SECONDS` (за замовчуванням 900с). Це покриває падіння
+    воркера, OOM-рестарт контейнера та повідомлення, що загубилося в брокері;
+  - `SCAN_STALE_AFTER_SECONDS` має бути **більший** за `NMAP_TIMEOUT_SECONDS`,
+    інакше beat вб'є ще живий скан.
 
 ### Services, Findings, Risk Score
 

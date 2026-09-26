@@ -15,4 +15,6 @@ COPY services/ services/
 
 ENV PYTHONPATH=/repo/backend:/repo
 
-CMD ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--pool=solo"]
+# -B — вбудований celery beat, потрібен для періодичного прибирання
+# завислих сканів (workers.tasks.reap_stale_scans).
+CMD ["celery", "-A", "workers.celery_app", "worker", "--loglevel=info", "--pool=solo", "-B"]

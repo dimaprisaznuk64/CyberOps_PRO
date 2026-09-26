@@ -19,7 +19,8 @@
 | v1.0 | ✅ | Security Lab, AI Assistant, docs+demo, **Frontend (Next.js)** | `ac4dab3`, `a8fda16`, `fced99e`, `2244dae` |
 | v1.1 | ✅ | Канали сповіщень: Email (SMTP), Telegram, налаштування в UI | (поточний) |
 | v1.2 | ✅ | App Security: rate limiting, security headers, TLS, CI-сканування, 18 CVE | (поточний) |
-| v1.3 | ✅ | Jaeger: OTLP-трейси для core/auth/worker, скрейп, Grafana-датасорс | (поточний) |
+| v1.3 | ✅ | Jaeger: OTLP-трейси для core/auth/worker, скрейп, Grafana-датасорс | `3dd1870` |
+| v1.4 | ✅ | Завислі скан: 503 при недоступному брокері + celery beat-збирач | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -82,7 +83,16 @@
 
 ## Ідеї / дрібниці (не обовʼязково)
 
-- Почистити завислий `pending`-скан (старий баг працює тільки до фікса; для чистоти — переведення у `failed` по таймауту).
+- **Завислі скан** — ✅ закрито у v1.4:
+  - корінь проблеми: `create_scan` комітив рядок у БД і лише потім робив
+    `enqueue()`; при недоступному брокері API падав у 500, а рядок лишався
+    `pending` назавжди. Тепер `except` -> `mark_enqueue_failed()` + `503`;
+  - `app/services/scans.py`: `fail_stale_scans()` переводить у `failed`
+    `pending`/`running` без `finished_at` старші за `SCAN_STALE_AFTER_SECONDS`
+    (для running орієнтир — `started_at`), з tolerant-обробкою naive datetime;
+  - `workers.tasks.reap_stale_scans` + celery beat (`-B` у Dockerfile CMD),
+    інтервал `SCAN_REAPER_INTERVAL_SECONDS`;
+  - 5 тестів (`tests/test_scan_reaper.py`) + тест на 503, всього 138.
 - Інструментувати сам `gateway` через OTel: зараз сліди починаються з сервісу, який отримав запит, тож hop gateway→core не видно окремим спаном.
 - Перенести старий `frontend/index.html` у окрему теку legacy, щоб не мішати Next.js.
 - Архів deep Nmap-результатів (raw_xml) з візуалізацією у `scans/[id]`.
@@ -98,7 +108,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (133)
+cd backend && python -m pytest tests -q # тести (138)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

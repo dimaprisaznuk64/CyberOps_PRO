@@ -15,6 +15,15 @@ celery_app.conf.worker_prefetch_multiplier = 1
 celery_app.conf.task_acks_late = True
 celery_app.conf.worker_concurrency = 1
 
+# Прибирання завислих сканів: без нього рядок, який воркер не дописав
+# (падіння, OOM-рестарт), назавжди світився «в обробці».
+celery_app.conf.beat_schedule = {
+    "reap-stale-scans": {
+        "task": "workers.tasks.reap_stale_scans",
+        "schedule": float(settings.scan_reaper_interval_seconds),
+    }
+}
+
 
 def serve_metrics() -> None:
     start_http_server(settings.worker_metrics_port)
