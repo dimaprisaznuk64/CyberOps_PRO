@@ -17,6 +17,10 @@ spec:
           image: cyberops/cyberops-backend
           imagePullPolicy: IfNotPresent
           command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+          # Jaeger групує спани за service.name
+          env:
+            - name: TRACING_SERVICE_NAME
+              value: core
           envFrom:
             - configMapRef:
                 name: cyberops-config

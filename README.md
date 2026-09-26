@@ -503,12 +503,37 @@ docker compose --profile mail up -d
   gateway: `gateway_requests_total`, `gateway_ws_connections_total`),
   `core:8001` і `auth:8002` (`http_requests_total`, `scan_*` — на core),
   `worker:9091` (скан-процеси). `/metrics` віддає: `http_requests_total`
-  (method, path-баcket, status), `scan_duration_seconds` (histogram),
+  (method, path-бакет, status), `scan_duration_seconds` (histogram),
   `scan_results_total` (status, risk_level), `scan_services_total`.
 - **Grafana** — профільно provisioned дашборд `monitoring/grafana/provisioning`
   (джерело Prometheus + панелі трафіку, тривалості скан-запусків, ризиків);
   `http://localhost:3001` (admin/admin).
 - **Structured logs** — `LOG_JSON=true` перемикає логери на JSON-формат
   (`ts, level, logger, message` + додаткові поля).
-- **OpenTelemetry** — `TRACING_ENABLED=true` + `OTLP_ENDPOINT` підключає
-  експортер OTLP (HTTP); worker тегає спани `scan.run` (scan.id, host, outcome, risk).
+- **OpenTelemetry → Jaeger** (v1.2) — `TRACING_ENABLED=true` + `OTLP_ENDPOINT`
+  підключає OTLP/HTTP-експортер; у compose Jaeger вже у стеку, тому
+  `OTLP_ENDPOINT` перекривається на `http://jaeger:4318/v1/traces`.
+  UI — `http://localhost:16686`, у k8s — `NodePort 30086`.
+  | Сервіс | `TRACING_SERVICE_NAME` | Що видно у Jaeger |
+  |---|---|---|
+  | `core` | `core` | автотрейс HTTP-запитів + `scan.run` з worker-ів |
+  | `auth` | `auth` | login/register/refresh |
+  | `worker` | `worker` | `scan.run` (scan.id, host, type, outcome, risk) |
+
+  Джерело даних Jaeger provisioning'у додано в Grafana, Prometheus скрейпить
+  внутрішні метрики Jaeger (`jaeger:14269`).
+
+  Деталі реалізації, які варто знати:
+  - `TracerProvider` створюється з `Resource`, де `service.name` береться з
+    `TRACING_SERVICE_NAME` — без нього Jaeger згрупував би всі сервіси в один
+    `unknown_service`;
+  - ініціалізація ідемпотентна: OTel забороняє перевизначати глобальний
+    провайдер, тому повторний виклик просто повертає вже створений;
+  - `get_tracer()` бере трасер із нашого провайдера, а не з глобального — інакше
+    перша ж ініціалізація лишила б глобальний no-op, і ручні спани воркера
+    зникли б;
+  - воркер викликає `init_tracing()` при імпорті (у Celery немає FastAPI-апу,
+    але `scan.run` створюється вручну);
+  - якщо колектор недоступний, `BatchSpanProcessor` лише пише помилки в лог —
+    застосунок працює далі.
+

@@ -21,6 +21,9 @@ data:
       - job_name: cyberops-worker
         static_configs:
           - targets: ["worker:9091"]
+      - job_name: cyberops-jaeger
+        static_configs:
+          - targets: ["jaeger:14269"]
       - job_name: prometheus
         static_configs:
           - targets: ["localhost:9090"]

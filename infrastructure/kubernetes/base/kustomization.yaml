@@ -17,6 +17,7 @@ resources:
   - worker.yaml
   - frontend.yaml
   - prometheus.yaml
+  - jaeger.yaml
   - grafana.yaml
 
 configMapGenerator:

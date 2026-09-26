@@ -19,6 +19,7 @@
 | v1.0 | ✅ | Security Lab, AI Assistant, docs+demo, **Frontend (Next.js)** | `ac4dab3`, `a8fda16`, `fced99e`, `2244dae` |
 | v1.1 | ✅ | Канали сповіщень: Email (SMTP), Telegram, налаштування в UI | (поточний) |
 | v1.2 | ✅ | App Security: rate limiting, security headers, TLS, CI-сканування, 18 CVE | (поточний) |
+| v1.3 | ✅ | Jaeger: OTLP-трейси для core/auth/worker, скрейп, Grafana-датасорс | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -62,11 +63,27 @@
     стартувати з шаблонним секретом у `APP_ENV=production`;
   - nmap-XML тепер через `defusedxml` (XML залежить від відповідей цілі);
   - 22 тести (`tests/test_ratelimit.py`, `tests/test_jwt_secret.py`), всього 127.
-- **#21 Jaeger** — OpenTelemetry-експортер OTLP вже є в коді (`TRACING_ENABLED`, `OTLP_ENDPOINT`), але Jaeger не в compose/terraform. Додати `jaeger` сервіс до compose (16686 UI, 4318 OTLP HTTP) + scrape/настройка.
+- **#21 Jaeger** — ✅ закрито:
+  - `jaeger` (all-in-one 1.62) у compose: UI `:16686`, OTLP/HTTP `:4318`;
+    у k8s — Deployment + Service (NodePort 30086);
+  - `OTLP_ENDPOINT` у compose перекривається на `http://jaeger:4318/v1/traces`
+    (окрема змінна `OTLP_ENDPOINT_INTERNAL`, бо host-`.env` з `localhost`
+    у контейнері вказує на сам контейнер);
+  - `TRACING_SERVICE_NAME` проставляється per-service (core/auth/worker) — без
+    `Resource.service.name` Jaeger згрупував би все в `unknown_service`;
+  - воркер тепер реально експортує спани: `init_tracing()` при імпорті
+    `workers/celery_app.py` (раніше `get_tracer()` давав no-op і `scan.run`
+    зникав);
+  - Prometheus скрейпить `jaeger:14269`, в Grafana додано Jaeger-датасорс
+    (+`uid: prometheus`, щоб працював `tracesToLogsV2`);
+  - `init_tracing()` ідемпотентна (OTel забороняє перевизначати глобальний
+    провайдер), `get_tracer()` бере трасер із нашого провайдера;
+  - 6 тестів (`tests/test_tracing.py`) з `InMemorySpanExporter`, всього 133.
 
 ## Ідеї / дрібниці (не обовʼязково)
 
 - Почистити завислий `pending`-скан (старий баг працює тільки до фікса; для чистоти — переведення у `failed` по таймауту).
+- Інструментувати сам `gateway` через OTel: зараз сліди починаються з сервісу, який отримав запит, тож hop gateway→core не видно окремим спаном.
 - Перенести старий `frontend/index.html` у окрему теку legacy, щоб не мішати Next.js.
 - Архів deep Nmap-результатів (raw_xml) з візуалізацією у `scans/[id]`.
 - Додати віджет ризику для asset (сумативний з усіх сканів).
@@ -81,7 +98,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (127)
+cd backend && python -m pytest tests -q # тести (133)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

@@ -35,6 +35,10 @@ x-backend-service: &backend-service
     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    # Tracing: OTLP-колектор — це jaeger у compose мережі. Локальний запуск
+    # поза compose має власний OTLP_ENDPOINT (за замовчуванням localhost:4318).
+    TRACING_ENABLED: ${TRACING_ENABLED:-true}
+    OTLP_ENDPOINT: ${OTLP_ENDPOINT_INTERNAL:-http://jaeger:4318/v1/traces}
     <<: *notify-environment
 
 services:
@@ -81,6 +85,10 @@ services:
   core:
     <<: *backend-service
     command: uvicorn app.main:app --host 0.0.0.0 --port 8001
+    # Jaeger групує спани за service.name — кожен сервіс називає себе сам
+    environment:
+      <<: *backend-environment
+      TRACING_SERVICE_NAME: core
     ports:
       - "8001:8001"
     healthcheck:
@@ -100,6 +108,9 @@ services:
   auth:
     <<: *backend-service
     command: uvicorn app.auth_app:app --host 0.0.0.0 --port 8002
+    environment:
+      <<: *backend-environment
+      TRACING_SERVICE_NAME: auth
     ports:
       - "8002:8002"
     healthcheck:
@@ -158,6 +169,11 @@ services:
       REALTIME_MODE: ${REALTIME_MODE:-redis}
       SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       NMAP_TIMEOUT_SECONDS: ${NMAP_TIMEOUT_SECONDS:-300}
+      # Воркер теж експортує спани (scan.run тощо), інакше довгі сканування
+      # не видно в Jaeger — найцікавіші сліди саме звідти
+      TRACING_ENABLED: ${TRACING_ENABLED:-true}
+      TRACING_SERVICE_NAME: worker
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT_INTERNAL:-http://jaeger:4318/v1/traces}
       <<: *notify-environment
     depends_on:
       postgres:
@@ -178,6 +194,18 @@ services:
     depends_on:
       gateway:
         condition: service_started
+
+  # Jaeger all-in-one: приймає OTLP/HTTP і показує спани.
+  # UI на http://localhost:16686, OTLP на 4318 (зсередини мережі — jaeger:4318).
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP/HTTP (для otel-продуктів поза compose)
+    depends_on:
+      - gateway
 
   prometheus:
     image: prom/prometheus:v2.53.0

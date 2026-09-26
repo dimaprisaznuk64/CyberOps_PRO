@@ -24,6 +24,9 @@ data:
   SECURITY_HEADERS_ENABLED: "true"
   HSTS_ENABLED: "true"
   WORKER_METRICS_PORT: "9091"
+  # Tracing: OTLP-колектор — сервіс jaeger у цьому ж namespace
+  TRACING_ENABLED: "true"
+  OTLP_ENDPOINT: http://jaeger:4318/v1/traces
   # Канали сповіщень. SMTP_PASSWORD / TELEGRAM_BOT_TOKEN — у cyberops-secrets
   NOTIFICATIONS_ENABLED: "true"
   NOTIFY_MIN_SEVERITY: high

@@ -16,6 +16,10 @@ spec:
         - name: worker
           image: cyberops/cyberops-worker
           imagePullPolicy: IfNotPresent
+          # Jaeger групує спани за service.name
+          env:
+            - name: TRACING_SERVICE_NAME
+              value: worker
           envFrom:
             - configMapRef:
                 name: cyberops-config

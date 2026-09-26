@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     tracing_enabled: bool = False
     otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    # Jaeger групує спани за service.name, тому кожен сервіс має назвати себе
+    # інакше всі сліди злипаються в один «unknown_service».
+    tracing_service_name: str = "core"
+    app_version: str = "1.2.0"
     worker_metrics_port: int = 9091
 
     scan_allow_public: bool = False
