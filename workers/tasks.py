@@ -6,9 +6,16 @@ from datetime import UTC, datetime
 import app.models  # noqa: F401  (реєстрація всіх моделей для SQLAlchemy mapper)
 from app.config import settings
 from app.models.finding import Finding
-from app.models.notification import Notification
+from app.models.notification import (
+    CHANNEL_WEB,
+    EXTERNAL_CHANNELS,
+    STATUS_PENDING,
+    STATUS_SENT,
+    Notification,
+)
 from app.models.scan import SCAN_DONE, SCAN_FAILED, SCAN_RUNNING, Scan
 from app.models.service import Service
+from app.models.user import User
 from app.services.analysis import (
     compute_risk_score,
     derive_findings,
@@ -17,10 +24,12 @@ from app.services.analysis import (
 )
 from app.services.events import publish_event
 from app.services.metrics import (
+    notifications_delivered_total,
     scan_duration_seconds,
     scan_results_total,
     scan_services_total,
 )
+from app.services.notifications import build_notifications, deliver, prefs_from_user
 from app.services.realtime import (
     MESSAGE_NOTIFICATION_CREATED,
     MESSAGE_SCAN_COMPLETED,
@@ -29,6 +38,7 @@ from app.services.realtime import (
     publish_event as publish_realtime_event,
 )
 from app.services.tracing import get_tracer
+from app.tasks import enqueue_notification_delivery
 from celery import signals
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -148,27 +158,44 @@ async def _run_scan(
         await session.commit()
 
         created_notifications = []
+        external_rows: list[Notification] = []
         if scan is not None:
-            done_notification = Notification(
-                user_id=scan.created_by,
-                scan_id=scan_id,
-                title="Сканування завершено",
-                body=f"{host} · {scan_type} · ризик {risk_score}/100 ({risk_level})",
-                severity=risk_level.lower(),
-            )
-            session.add(done_notification)
-            created_notifications.append(done_notification)
+            owner = await session.get(User, scan.created_by)
+            prefs = prefs_from_user(owner)
+            events = [
+                (
+                    "Сканування завершено",
+                    f"{host} · {scan_type} · ризик {risk_score}/100 ({risk_level})",
+                    risk_level.lower(),
+                )
+            ]
             if raised_findings:
-                alert_notification = Notification(
+                events.append(
+                    (
+                        "Виявлено знахідки високої/критичної важливості",
+                        "; ".join(f["title"] for f in raised_findings[:5]),
+                        "critical",
+                    )
+                )
+            for title, body, severity in events:
+                rows = build_notifications(
                     user_id=scan.created_by,
                     scan_id=scan_id,
-                    title="Виявлено знахідки високої/критичної важливості",
-                    body="; ".join(f["title"] for f in raised_findings[:5]),
-                    severity="critical",
+                    title=title,
+                    body=body,
+                    severity=severity,
+                    prefs=prefs,
                 )
-                session.add(alert_notification)
-                created_notifications.append(alert_notification)
+                session.add_all(rows)
+                created_notifications.extend(rows)
+                external_rows.extend(r for r in rows if r.channel in EXTERNAL_CHANNELS)
             await session.commit()
+
+    # id зовнішніх рядків з'являється лише після flush/commit, тому збираємо тут.
+    # Доставка йде окремими тасками — SMTP/Telegram не блокують скан.
+    for row in external_rows:
+        if row.status == STATUS_PENDING and row.id is not None:
+            enqueue_notification_delivery(row.id)
 
     duration = max((datetime.now(UTC) - started_at).total_seconds(), 0)
     scan_duration_seconds.labels(scan_type=scan_type).observe(duration)
@@ -191,6 +218,9 @@ async def _run_scan(
         },
     )
     for notification in created_notifications:
+        # зовнішні канали дублюють той самий заголовок — у стрічку йде тільки web
+        if notification.channel != CHANNEL_WEB:
+            continue
         await publish_realtime_event(
             user_id,
             MESSAGE_NOTIFICATION_CREATED,
@@ -198,6 +228,7 @@ async def _run_scan(
                 "notification_id": notification.id,
                 "title": notification.title,
                 "severity": notification.severity,
+                "channel": notification.channel,
             },
         )
 
@@ -220,3 +251,34 @@ async def _run_scan(
             },
         )
     return {"scan_id": scan_id, "status": SCAN_DONE, "risk_score": risk_score}
+
+
+@celery_app.task(name="workers.tasks.deliver_notification")
+def deliver_notification(notification_id: int) -> dict:
+    return asyncio.run(_deliver_notification(notification_id))
+
+
+async def _deliver_notification(notification_id: int) -> dict:
+    async with SessionLocal() as session:
+        notification = await session.get(Notification, notification_id)
+        if notification is None:
+            return {"notification_id": notification_id, "status": "missing"}
+        if notification.channel not in EXTERNAL_CHANNELS:
+            return {"notification_id": notification_id, "status": "ignored"}
+        if notification.status == STATUS_SENT:
+            return {"notification_id": notification_id, "status": "already_sent"}
+
+        result = await deliver(notification)
+        notification.status = result.status
+        notification.error = result.error
+        notification.sent_at = datetime.now(UTC) if result.status == STATUS_SENT else None
+        await session.commit()
+        notifications_delivered_total.labels(
+            channel=notification.channel, status=result.status
+        ).inc()
+        return {
+            "notification_id": notification_id,
+            "channel": notification.channel,
+            "status": result.status,
+            "error": result.error,
+        }

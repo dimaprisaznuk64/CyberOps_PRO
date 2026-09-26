@@ -46,5 +46,31 @@ class Settings(BaseSettings):
     ai_api_key: str = ""
     ai_timeout_seconds: float = 30.0
 
+    # --- Канали сповіщень (email / telegram) ---
+    # Аварійний вимикач усіх зовнішніх каналів
+    notifications_enabled: bool = True
+    # Базовий URL фронтенду — для посилань у листах і повідомленнях
+    app_base_url: str = "http://localhost:3000"
+    # Серверний поріг: зовнішній канал вмикається лише коли severity >= notify_min_severity
+    notify_min_severity: str = "high"
+
+    smtp_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = "cyberops@localhost"
+    smtp_from_name: str = "CyberOps PRO"
+    smtp_starttls: bool = True
+    smtp_ssl: bool = False
+    smtp_timeout_seconds: float = 10.0
+
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_api_base: str = "https://api.telegram.org"
+    telegram_timeout_seconds: float = 10.0
+    telegram_max_message_length: int = 4096
+
 
 settings = Settings()

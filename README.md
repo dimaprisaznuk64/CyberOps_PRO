@@ -21,6 +21,7 @@ web-dashboard.
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
 | **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
+| **1.1** | 🔄 | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
 
 ## Ролі (RBAC)
 
@@ -317,7 +318,11 @@ frontend/
 | POST | `/api/v1/reports` | analyst / admin (201; `report_type=asset\|scan`) |
 | GET | `/api/v1/reports` | owner (свої) / analyst / admin; фільтр `?report_type=` |
 | GET | `/api/v1/reports/{id}` | owner / analyst / admin |
-| GET | `/api/v1/notifications` | authorized (власні); `?unread_only=` |
+| GET | `/api/v1/notifications` | authorized (власні); `?unread_only=`, `?channel=web\|email\|telegram` |
+| GET | `/api/v1/notifications/preferences` | authorized |
+| PATCH | `/api/v1/notifications/preferences` | authorized |
+| POST | `/api/v1/notifications/test` | authorized; `{channel}` → 202 |
+| POST | `/api/v1/notifications/{id}/retry` | authorized (власні, email/telegram) |
 | GET | `/api/v1/notifications/{id}` | authorized (власні) |
 | PATCH | `/api/v1/notifications/{id}/read` | authorized (власні) |
 | POST | `/api/v1/notifications/read-all` | authorized |
@@ -368,6 +373,59 @@ Swagger: `http://localhost:8000/docs`
   API — `report.generated` (topic `cyberops.events`). Публікація тиха:
   недоступність брокера не ламає API.
 - RabbitMQ піднімається `docker compose` разом із postgres/redis.
+
+### Канали сповіщень: Email, Telegram (v1.1)
+
+Кожне сповіщення має поле `channel` (`web` / `email` / `telegram`) і `status`
+(`sent` / `pending` / `failed` / `skipped`) — видно в UI на сторінці
+Notifications разом із фільтром по каналу та кнопкою «Повторити» для
+невдалих листів.
+
+**Як це працює.** Worker створює рядок `web` завжди. Якщо severity ≥ поріг,
+додатково створюються рядки `email`/`telegram` зі статусом `pending`, а їх
+доставляє окремий Celery-таск `workers.tasks.deliver_notification` — SMTP чи
+Telegram API не блокують ані сканування, ані API. Помилки доставки пишуться в
+`notifications.error`, лічильник — `notifications_delivered_total`.
+
+**Поріг важливості.** `NOTIFY_MIN_SEVERITY` — серверна підлога: користувач може
+зробити поріг суворішим, але не може послабити політику сервера. Дієвий поріг
+повертається в `effective_min_severity`.
+
+**Налаштування.** UI: Settings → «Канали сповіщень» (`email`, `telegram_chat_id`,
+перемикачі, мінімальний рівень, кнопки «Тест Email»/«Тест Telegram»).
+API: `GET`/`PATCH /api/v1/notifications/preferences`, `POST /api/v1/notifications/test`.
+
+**Зовнішні змінні** (усі вимкнені за замовчуванням):
+
+| Змінна | Призначення |
+|---|---|
+| `NOTIFICATIONS_ENABLED` | аварійний вимикач усіх зовнішніх каналів |
+| `NOTIFY_MIN_SEVERITY` | серверний поріг (`info`…`critical`) |
+| `APP_BASE_URL` | базовий URL фронтенду для посилань у листах/повідомленнях |
+| `SMTP_ENABLED`, `SMTP_HOST`, `SMTP_PORT` | вмикач та адреса SMTP-сервера |
+| `SMTP_USER`, `SMTP_PASSWORD` | автентифікація (порожньо = без логіну) |
+| `SMTP_FROM`, `SMTP_FROM_NAME` | відправник |
+| `SMTP_STARTTLS`, `SMTP_SSL`, `SMTP_TIMEOUT_SECONDS` | TLS-режим і таймаут |
+| `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN` | вмикач і токен від @BotFather |
+| `TELEGRAM_CHAT_ID` | чат за замовчуванням, якщо користувач не задав свій |
+| `TELEGRAM_API_BASE` | база Telegram API (для локального mock) |
+
+**Локальний стенд для email** — без зовнішніх серверів:
+
+```bash
+# у .env:
+#   SMTP_ENABLED=true
+#   SMTP_HOST=mailpit
+#   SMTP_PORT=1025
+#   SMTP_STARTTLS=false
+docker compose --profile mail up -d
+# пошта: http://localhost:8025
+```
+
+**Telegram**: токен від [@BotFather](https://t.me/BotFather), далі напишіть
+боту і дізнайтеся `chat_id` через
+`curl https://api.telegram.org/bot<TOKEN>/getUpdates`. Повідомлення
+надсилаються в HTML з екрануванням вводу й обрізанням до ліміту Telegram.
 
 ### Realtime, WebSocket, Dashboard (v0.5)
 

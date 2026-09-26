@@ -12,6 +12,8 @@ ROLE_ANALYST = "analyst"
 ROLE_USER = "user"
 ROLES = (ROLE_ADMIN, ROLE_ANALYST, ROLE_USER)
 
+NOTIFY_SEVERITIES = ("info", "low", "medium", "high", "critical")
+
 
 class User(Base):
     __tablename__ = "users"
@@ -26,6 +28,14 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- Налаштування сповіщень (канали email/telegram) ---
+    telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notify_email: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_telegram: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notify_min_severity: Mapped[str] = mapped_column(
+        String(20), default="high", server_default="high", nullable=False
+    )
 
     @property
     def is_admin(self) -> bool:

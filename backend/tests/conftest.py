@@ -8,7 +8,7 @@ from app.main import app as core_app
 from app.models.user import User
 from app.services.auth import hash_password
 from app.services.events import CollectingPublisher, get_publisher
-from app.tasks import get_task_enqueuer
+from app.tasks import get_notification_enqueuer, get_task_enqueuer
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
@@ -46,6 +46,17 @@ def scan_queue():
 
 
 @pytest.fixture
+def notification_queue():
+    calls: list[int] = []
+
+    def _enqueue(notification_id: int) -> None:
+        calls.append(notification_id)
+
+    _enqueue.calls = calls  # type: ignore[attr-defined]
+    return _enqueue
+
+
+@pytest.fixture
 def event_publisher():
     publisher = CollectingPublisher()
     core_app.dependency_overrides[get_publisher] = lambda: publisher
@@ -54,7 +65,7 @@ def event_publisher():
 
 
 @pytest_asyncio.fixture
-async def client(session_factory, scan_queue, event_publisher):
+async def client(session_factory, scan_queue, notification_queue, event_publisher):
     async def _get_session():
         async with session_factory() as session:
             yield session
@@ -62,6 +73,7 @@ async def client(session_factory, scan_queue, event_publisher):
     for service_app in (core_app, auth_app):
         service_app.dependency_overrides[get_session] = _get_session
         service_app.dependency_overrides[get_task_enqueuer] = lambda: scan_queue
+        service_app.dependency_overrides[get_notification_enqueuer] = lambda: notification_queue
         service_app.state.audit_session_factory = session_factory
 
     gateway_app.state.upstreams = {

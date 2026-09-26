@@ -22,6 +22,11 @@ scan_services_total = Counter(
     "Discovered open services",
     ["scan_type"],
 )
+notifications_delivered_total = Counter(
+    "notifications_delivered_total",
+    "Notification delivery attempts by channel and status",
+    ["channel", "status"],
+)
 
 
 def describe_path(path: str) -> str:

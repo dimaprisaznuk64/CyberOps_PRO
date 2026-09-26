@@ -1,5 +1,23 @@
 name: cyberops
 
+x-notify-environment: &notify-environment
+  NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+  NOTIFY_MIN_SEVERITY: ${NOTIFY_MIN_SEVERITY:-high}
+  SMTP_ENABLED: ${SMTP_ENABLED:-false}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_FROM: ${SMTP_FROM:-cyberops@localhost}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-CyberOps PRO}
+  SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+  SMTP_SSL: ${SMTP_SSL:-false}
+  TELEGRAM_ENABLED: ${TELEGRAM_ENABLED:-false}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+  TELEGRAM_API_BASE: ${TELEGRAM_API_BASE:-https://api.telegram.org}
+
 x-backend-service: &backend-service
   image: ${IMAGE_PREFIX:-cyberops}/cyberops-backend:${IMAGE_TAG:-latest}
   build:
@@ -17,6 +35,7 @@ x-backend-service: &backend-service
     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}
     CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    <<: *notify-environment
 
 services:
   postgres:
@@ -128,6 +147,7 @@ services:
       REALTIME_MODE: ${REALTIME_MODE:-redis}
       SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
       NMAP_TIMEOUT_SECONDS: ${NMAP_TIMEOUT_SECONDS:-300}
+      <<: *notify-environment
     depends_on:
       postgres:
         condition: service_healthy
@@ -168,6 +188,16 @@ services:
       - "3001:3000"
     depends_on:
       - prometheus
+
+  # Локальний SMTP-стенд для тестування email-каналу без зовнішніх серверів.
+  # Увімкнути: docker compose --profile mail up -d
+  # Пошта на http://localhost:8025, SMTP на localhost:1025
+  mailpit:
+    image: axllent/mailpit:v1.21
+    profiles: ["mail"]
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   pgdata:

@@ -19,6 +19,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: cyberops-config
+            # секрети потрібні воркеру: саме він доставляє email/telegram
+            - secretRef:
+                name: cyberops-secrets
           ports:
             - containerPort: 9091
               name: metrics

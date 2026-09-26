@@ -17,6 +17,7 @@
 | v0.8 | ✅ | Kubernetes (kustomize), CI/CD (GHCR, kind E2E, kustomize-валідація) | `8ab49e6` |
 | v0.9 | ✅ | Terraform/AWS (EC2 + SG + EIP + user-data deploy) | `b5966bd` |
 | v1.0 | ✅ | Security Lab, AI Assistant, docs+demo, **Frontend (Next.js)** | `ac4dab3`, `a8fda16`, `fced99e`, `2244dae` |
+| v1.1 | ✅ | Канали сповіщень: Email (SMTP), Telegram, налаштування в UI | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -25,10 +26,20 @@
 
 ## Відомі незакриті пункти плану (наступні пріоритети)
 
-- **#14 Notifications канали** — зараз лише web (таблиця notifications). Додати:
-  - Email-сповіщення (SMTP) для high/critical findings;
-  - Telegram bot (асинхронно через Celery-таск, щоб не вантажити API);
-  - поле `channel` (web/email/telegram) + налаштування в Settings.
+- **#14 Notifications канали** — ✅ закрито у v1.1:
+  - `notifications.channel` (`web`/`email`/`telegram`) + `status`/`destination`/`sent_at`/`error`
+    (міграція `0006_notification_channels`); fan-out у worker, доставка — окремий Celery-таск
+    `workers.tasks.deliver_notification`, лічильник `notifications_delivered_total`;
+  - Email через SMTP (text+HTML, екранування, TLS/SSL, auth) і Telegram через Bot API
+    (HTML, екранування, обрізання до ліміту);
+  - поріг `NOTIFY_MIN_SEVERITY` як серверна підлога + персональний поріг користувача
+    (`effective_min_severity` = найсуворіший);
+  - API: `GET`/`PATCH /notifications/preferences`, `POST /notifications/test`,
+    `POST /notifications/{id}/retry`, `?channel=` фільтр;
+  - UI: форма каналів у Settings, бейджі каналу/доставки + «Повторити» у Notifications;
+  - інфра: mailpit-профіль у compose, anchor `x-notify-environment`, k8s configmap/secret
+    (+ `secretRef` у worker — без нього доставка не мала б паролів);
+  - 31 тест (`tests/test_notification_channels.py`), всього 104.
 - **#16 App Security** — зараз тільки edge-валідація та RBAC. Додати:
   - rate limiting на Gateway (login/register — до 5/хв, API — per-IP/token bucket);
   - CI-сканування: Bandit (Python), pip-audit (залежності), Trivy (Docker-образи), Semgrep (ruleset py);
@@ -50,7 +61,8 @@ cd "C:/Users/DIMAS/Desktop/Programming/PythonPRO/CyberOps_PRO"
 docker compose up -d --build            # весь стек + lab окремо:
 docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
+docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (73)
+cd backend && python -m pytest tests -q # тести (104)
 cd frontend && npm run build && npx tsc --noEmit
 ```

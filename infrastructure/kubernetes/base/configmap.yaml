@@ -17,3 +17,18 @@ data:
   AUTH_SERVICE_URL: http://auth:8002
   CORE_SERVICE_URL: http://core:8001
   WORKER_METRICS_PORT: "9091"
+  # Канали сповіщень. SMTP_PASSWORD / TELEGRAM_BOT_TOKEN — у cyberops-secrets
+  NOTIFICATIONS_ENABLED: "true"
+  NOTIFY_MIN_SEVERITY: high
+  APP_BASE_URL: http://localhost:3000
+  SMTP_ENABLED: "false"
+  SMTP_HOST: ""
+  SMTP_PORT: "587"
+  SMTP_USER: ""
+  SMTP_FROM: cyberops@localhost
+  SMTP_FROM_NAME: CyberOps PRO
+  SMTP_STARTTLS: "true"
+  SMTP_SSL: "false"
+  TELEGRAM_ENABLED: "false"
+  TELEGRAM_CHAT_ID: ""
+  TELEGRAM_API_BASE: https://api.telegram.org

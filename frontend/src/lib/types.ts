@@ -91,6 +91,10 @@ export interface AIExplanation {
   remediation: string;
 }
 
+export type NotificationChannel = "web" | "email" | "telegram";
+export type NotificationStatus = "sent" | "pending" | "failed" | "skipped";
+export type NotifySeverity = "info" | "low" | "medium" | "high" | "critical";
+
 export interface Notification {
   id: number;
   user_id: number;
@@ -100,6 +104,23 @@ export interface Notification {
   severity?: string | null;
   is_read: boolean;
   created_at: string;
+  channel: NotificationChannel;
+  destination?: string | null;
+  status: NotificationStatus;
+  sent_at?: string | null;
+  error?: string | null;
+}
+
+export interface NotificationPreferences {
+  email_available: boolean;
+  telegram_available: boolean;
+  server_min_severity: NotifySeverity;
+  effective_min_severity: NotifySeverity;
+  email?: string | null;
+  telegram_chat_id?: string | null;
+  notify_email: boolean;
+  notify_telegram: boolean;
+  notify_min_severity: NotifySeverity;
 }
 
 export interface Report {
