@@ -28,7 +28,11 @@ from app.services.logging_config import configure_logging, get_logger
 from app.services.realtime import manager, run_event_listener
 from app.services.tracing import setup_tracing
 
-FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+# Стара статична сторінка-дашборд (legacy/dashboard/index.html). Напряму
+# монтувати frontend/ не можна: gateway не вимагає токен для /dashboard, тож
+# так у публічний доступ потрапили б усі файли каталогу — node_modules,
+# .env.example, next.config.mjs, .next.
+LEGACY_DASHBOARD_DIR = Path(__file__).resolve().parents[2] / "legacy" / "dashboard"
 
 configure_logging(settings.log_json)
 
@@ -80,4 +84,13 @@ app.include_router(reports.router)
 app.include_router(dashboard.router)
 app.include_router(ws.router)
 
-app.mount("/dashboard", StaticFiles(directory=FRONTEND_DIR, html=True), name="dashboard")
+if LEGACY_DASHBOARD_DIR.is_dir():
+    app.mount(
+        "/dashboard",
+        StaticFiles(directory=LEGACY_DASHBOARD_DIR, html=True),
+        name="dashboard",
+    )
+else:
+    # Не критично: основний UI — це Next.js. Не падаємо на imports, щоб
+    # скорочений образ без legacy міг підніматись.
+    logger.warning("legacy_dashboard_missing", extra={"path": str(LEGACY_DASHBOARD_DIR)})

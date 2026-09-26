@@ -10,7 +10,9 @@ COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY backend/ .
-COPY frontend/ /frontend
+# Тільки legacy-дашборд. frontend/ копіювати не треба: бекенд
+# не віддає його статику (у каталозі лишилися б лише Next-вихідники),
+COPY legacy/ /legacy
 
 EXPOSE 8000
 

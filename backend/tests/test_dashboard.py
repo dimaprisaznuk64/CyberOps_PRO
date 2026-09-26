@@ -83,3 +83,27 @@ async def test_dashboard_scoped_to_user(client, session_factory):
     ).json()
     assert user_data["total_assets"] == 0
     assert user_data["recent_scans"] == []
+
+async def test_legacy_dashboard_page_is_served(client):
+    """Стара сторінка лишилась доступною на /dashboard — вона потрібна для
+    зворотної сумісності (окремий CSP для неї заданий у gateway)."""
+    # без слеша mount віддає 307 на /dashboard/ — це нормальна поведінка StaticFiles
+    resp = await client.get("/dashboard/")
+    assert resp.status_code == 200, resp.text
+    assert "text/html" in resp.headers["content-type"]
+    assert "CyberOps Dashboard" in resp.text
+
+
+async def test_legacy_dashboard_does_not_expose_frontend_dir(client):
+    """Раніше на /dashboard монтувався весь frontend/, а gateway не вимагає
+    токен для цього шляху — тож публічно віддавалися node_modules,
+    .env.example, next.config.mjs. Тепер має віддаватися тільки сторінка."""
+    for path in (
+        "/dashboard/package.json",
+        "/dashboard/.env.example",
+        "/dashboard/next.config.mjs",
+        "/dashboard/next-env.d.ts",
+        "/dashboard/src",
+    ):
+        resp = await client.get(path)
+        assert resp.status_code == 404, f"{path} -> {resp.status_code}"

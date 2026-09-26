@@ -398,7 +398,10 @@ Swagger: `http://localhost:8000/docs`
 підключення до `/ws`, статистика `/api/v1/dashboard`.
 
 > Старий однофайловий дашборд: `http://localhost:8000/dashboard/`
-> (`frontend/index.html`) — лишається для зворотної сумісності.
+> (`legacy/dashboard/index.html`) — лишається для зворотної сумісності.
+> Раніше бекенд монтував на `/dashboard` увесь каталог `frontend/`, а gateway
+> не вимагає токен для цього шляху — тож публічно віддавалися `node_modules/`,
+> `.env.example` і `.next/`. Тепер монтується тільки `legacy/dashboard/`.
 
 ### Сканування (етика)
 
@@ -502,7 +505,7 @@ docker compose --profile mail up -d
 - **Транспорт** — `REALTIME_MODE`:
   - `memory` (dev/тести) — події в межах процесу;
   - `redis` (compose) — воркер публікує через Redis pub/sub, API доставляє на WebSocket.
-- **Dashboard** — статична сторінка `frontend/index.html` на `/dashboard/`:
+- **Dashboard** — статична сторінка `legacy/dashboard/index.html` на `/dashboard/`:
   WebSocket + REST `/api/v1/dashboard` (unread, assets, high-risk, останні скани).
 - **E2E-тести** — WebSocket через `TestClient` (`/ws`, відхилення недійсного токена,
   доставка тільки власнику), статичний дашборд, статистика з урахуванням ролей.

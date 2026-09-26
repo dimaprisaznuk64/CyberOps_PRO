@@ -6,7 +6,7 @@ from gateway.config import settings
 # frame-ancestors/base-uri/form-action закривають clickjacking і підробку форм.
 CSP_STRICT = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
-# Legacy-дашборд (/dashboard -> backend/app mount на frontend/index.html) — це
+# Legacy-дашборд (/dashboard -> mount на legacy/dashboard/) — це
 # статична сторінка з інлайновими <style>/<script>, тож їй потрібен unsafe-inline.
 # Основний UI (Next.js) йде з окремого контейнера і gateway не проходить.
 CSP_STATIC = (

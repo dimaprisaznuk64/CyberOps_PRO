@@ -104,7 +104,15 @@
   - 6 тестів (`tests/test_gateway_tracing.py`) + 1 на виключення шуму;
     httpx-інструментація процесно-глобальна, тому тест на клієнтський спан
     мусить бути першим у модулі — інакше спани підуть у провайдер попереднього.
-- Перенести старий `frontend/index.html` у окрему теку legacy, щоб не мішати Next.js.
+- **Legacy-дашборд у окремій теці** — ✅ закрито у v1.3:
+  - `frontend/index.html` -> `legacy/dashboard/index.html` (Next.js його все одно
+    ігнорував, але файл виглядав як частина застосунку);
+  - знайшовся реальний баг: монтувався весь `frontend/`, а gateway не вимагає
+    токен для `/dashboard`, тож публічно віддавалися `node_modules/`, `.env.example`,
+    `next.config.mjs` і `.next/`. Тепер монтується лише `legacy/dashboard/`,
+    а бекенд стартує без нього (warning замість падіння на imports);
+  - `backend/Dockerfile` більше не копіює `frontend/` — образ менший;
+  - 2 тести: сторінка віддається, решта шляхів каталогу — 404.
 - Архів deep Nmap-результатів (raw_xml) з візуалізацією у `scans/[id]`.
 - Додати віджет ризику для asset (сумативний з усіх сканів).
 - `docker compose` для frontend: підтримати `NEXT_PUBLIC_API_URL` як build-arg (вже є) і задокументувати remote-розгортання (terraform + CORS).
@@ -118,7 +126,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (145)
+cd backend && python -m pytest tests -q # тести (148)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE
