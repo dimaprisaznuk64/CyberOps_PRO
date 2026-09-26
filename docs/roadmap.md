@@ -93,7 +93,17 @@
   - `workers.tasks.reap_stale_scans` + celery beat (`-B` у Dockerfile CMD),
     інтервал `SCAN_REAPER_INTERVAL_SECONDS`;
   - 5 тестів (`tests/test_scan_reaper.py`) + тест на 503, всього 138.
-- Інструментувати сам `gateway` через OTel: зараз сліди починаються з сервісу, який отримав запит, тож hop gateway→core не видно окремим спаном.
+- **Gateway в трасі** — ✅ закрито у v1.3:
+  - `gateway/tracing.py`: самостійний (gateway живе в окремому образі)
+    TracerProvider + FastAPI- і **httpx**-інструментація, тож тепер видно
+    ланцюг `gateway (server) → httpx GET (client) → core (server)`, а
+    `traceparent` прокидається вгору — одна траса на весь запит;
+  - `/metrics` і `/health` виключені через `excluded_urls`: інакше скрейп
+    раз на 15с давав би ~5.7 тис. сміттєвих спанів на добу на сервіс
+    (те саме додано й у `app/services/tracing.py`);
+  - 6 тестів (`tests/test_gateway_tracing.py`) + 1 на виключення шуму;
+    httpx-інструментація процесно-глобальна, тому тест на клієнтський спан
+    мусить бути першим у модулі — інакше спани підуть у провайдер попереднього.
 - Перенести старий `frontend/index.html` у окрему теку legacy, щоб не мішати Next.js.
 - Архів deep Nmap-результатів (raw_xml) з візуалізацією у `scans/[id]`.
 - Додати віджет ризику для asset (сумативний з усіх сканів).
@@ -108,7 +118,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (138)
+cd backend && python -m pytest tests -q # тести (145)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

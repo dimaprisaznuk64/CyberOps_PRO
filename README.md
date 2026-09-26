@@ -524,26 +524,42 @@ docker compose --profile mail up -d
   підключає OTLP/HTTP-експортер; у compose Jaeger вже у стеку, тому
   `OTLP_ENDPOINT` перекривається на `http://jaeger:4318/v1/traces`.
   UI — `http://localhost:16686`, у k8s — `NodePort 30086`.
-  | Сервіс | `TRACING_SERVICE_NAME` | Що видно у Jaeger |
-  |---|---|---|
-  | `core` | `core` | автотрейс HTTP-запитів + `scan.run` з worker-ів |
-  | `auth` | `auth` | login/register/refresh |
-  | `worker` | `worker` | `scan.run` (scan.id, host, type, outcome, risk) |
+   | Сервіс | `TRACING_SERVICE_NAME` | Що видно у Jaeger |
+   |---|---|---|
+   | `gateway` | `gateway` | кожен запит + **клієнтський спан на виклик до core/auth** |
+   | `core` | `core` | автотрейс HTTP-запитів + `scan.run` з worker-ів |
+   | `auth` | `auth` | login/register/refresh |
+   | `worker` | `worker` | `scan.run` (scan.id, host, type, outcome, risk) |
 
-  Джерело даних Jaeger provisioning'у додано в Grafana, Prometheus скрейпить
-  внутрішні метрики Jaeger (`jaeger:14269`).
+   Джерело даних Jaeger provisioning'у додано в Grafana, Prometheus скрейпить
+   внутрішні метрики Jaeger (`jaeger:14269`).
 
-  Деталі реалізації, які варто знати:
-  - `TracerProvider` створюється з `Resource`, де `service.name` береться з
-    `TRACING_SERVICE_NAME` — без нього Jaeger згрупував би всі сервіси в один
-    `unknown_service`;
-  - ініціалізація ідемпотентна: OTel забороняє перевизначати глобальний
-    провайдер, тому повторний виклик просто повертає вже створений;
-  - `get_tracer()` бере трасер із нашого провайдера, а не з глобального — інакше
-    перша ж ініціалізація лишила б глобальний no-op, і ручні спани воркера
-    зникли б;
-  - воркер викликає `init_tracing()` при імпорті (у Celery немає FastAPI-апу,
-    але `scan.run` створюється вручну);
-  - якщо колектор недоступний, `BatchSpanProcessor` лише пише помилки в лог —
-    застосунок працює далі.
+   Деталі реалізації, які варто знати:
+   - `TracerProvider` створюється з `Resource`, де `service.name` береться з
+     `TRACING_SERVICE_NAME` — без нього Jaeger згрупував би всі сервіси в один
+     `unknown_service`;
+   - **gateway в інструментований окремо (v1.3)**: раніше траса починалася
+     одразу в `core`/`auth`, тож першого хопу не було видно взагалі. Тепер у
+     Jaeger видно ланцюг `gateway (server) → httpx GET (client) → core (server)`,
+     а `traceparent` прокидається вгору — це одна траса на весь запит, і в ній
+     видно, скільки часу gateway чекав на бекенд;
+   - gateway лежить в окремому образі (`gateway/Dockerfile` копіює лише
+     `gateway/`), тому `gateway/tracing.py` — свідомий дубль
+     `app/services/tracing.py`; єдиниця відмінність — додаткова інструментація
+     httpx. Коли з'явиться спільний пакет, варто злити;
+   - `/metrics` і `/health` виключені з трасування (`excluded_urls`): Prometheus
+     скрейпить їх кожні 15с, тобто без виключення це ~5.7 тис. сміттєвих спанів
+     на добу на кожен сервіс;
+   - ініціалізація ідемпотентна: OTel забороняє перевизначати глобальний
+     провайдер, тому повторний виклик просто повертає вже створений;
+   - `get_tracer()` бере трасер із нашого провайдера, а не з глобального — інакше
+     перша ж ініціалізація лишила б глобальний no-op, і ручні спани воркера
+     зникли б;
+   - воркер викликає `init_tracing()` при імпорті (у Celery немає FastAPI-апу,
+     але `scan.run` створюється вручну);
+   - інструментація httpx глобальна й лишається на весь процес — у production
+     `setup_tracing()` викликається один раз при старті, у тестах це враховано
+     в `tests/test_gateway_tracing.py`;
+   - якщо колектор недоступний, `BatchSpanProcessor` лише пише помилки в лог —
+     застосунок працює далі.
 

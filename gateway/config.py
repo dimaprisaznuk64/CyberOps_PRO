@@ -44,5 +44,14 @@ class GatewaySettings(BaseSettings):
     gateway_tls_version: int = 2  # ssl.TLSVersion: 2 = TLSv1_2, 3 = TLSv1_3
     gateway_tls_ciphers: str = DEFAULT_TLS_CIPHERS
 
+    # --- Tracing (v1.3) ---
+    # Gateway — окремий сервіс, тож без нього в трасі видно лише те, що
+    # почалося вже в core/auth, а перший хоп і його латентність — ні.
+    tracing_enabled: bool = False
+    otlp_endpoint: str = "http://localhost:4318/v1/traces"
+    tracing_service_name: str = "gateway"
+    app_env: str = "dev"
+    app_version: str = "1.3.0"
+
 
 settings = GatewaySettings()

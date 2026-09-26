@@ -88,3 +88,35 @@ async def test_setup_tracing_without_instrumentation_is_harmless(monkeypatch, me
     #FastAPIInstrumentor не мав підчепити додаток
     assert not getattr(app, "_is_instrumented_by_opentelemetry", False)
     tracing.reset_tracing()
+
+
+async def test_scrape_endpoints_are_not_traced(memory_exporter):
+    """Prometheus скрейпить /metrics і /health кожні 15с: ці спани треба
+    відкидати, інакше Jaeger засмічується сміттям."""
+    app = FastAPI()
+
+    @app.get("/ping")
+    async def ping():
+        return {"pong": True}
+
+    @app.get("/metrics")
+    async def metrics():
+        return {"traces_total": 1}
+
+    @app.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    provider = init_tracing(exporter=memory_exporter)
+    assert setup_tracing(app) is not None
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        for path in ("/ping", "/metrics", "/health", "/metrics"):
+            resp = await ac.get(path)
+            assert resp.status_code == 200
+
+    provider.force_flush()
+    names = [s.name for s in memory_exporter.get_finished_spans()]
+    assert any("ping" in name for name in names), names
+    assert not any("metrics" in name for name in names), names
+    assert not any("health" in name for name in names), names

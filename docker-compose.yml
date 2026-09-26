@@ -146,6 +146,11 @@ services:
       # За замовчуванням gateway слухає HTTP — TLS термінує балансувальник.
       GATEWAY_TLS_CERTFILE: ${GATEWAY_TLS_CERTFILE:-}
       GATEWAY_TLS_KEYFILE: ${GATEWAY_TLS_KEYFILE:-}
+      # v1.3: gateway теж експортує спани, щоб перший хоп (клієнт -> gateway
+      # -> core) був видимий, а не починався десь у core.
+      TRACING_ENABLED: ${TRACING_ENABLED:-true}
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
+      TRACING_SERVICE_NAME: gateway
     volumes:
       - ${TLS_CERTS_DIR:-./certs}:/certs:ro
     ports:

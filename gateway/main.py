@@ -25,6 +25,7 @@ from gateway.helpers import (
 )
 from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, Decision, TokenBucketLimiter
 from gateway.security import decode_access_token
+from gateway.tracing import setup_tracing
 
 logger = logging.getLogger("gateway")
 
@@ -304,3 +305,9 @@ async def ws_proxy(websocket: WebSocket, token: str = ""):
 )
 async def proxy(request: Request) -> Response:
     return await _forward(request, _identity(request))
+
+
+# Останнє звернення до add_middleware: у Starlette останній middleware стає
+# найзовнішнім, тож OTel-обгортка вимірює весь запит разом із TLS/headers,
+# а httpx-спани всередині уже є дітьми цього server-спану.
+setup_tracing(app)

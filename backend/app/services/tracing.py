@@ -9,6 +9,11 @@ from opentelemetry import trace
 # prefork, тести) просто мовчки лишиться без експорту.
 _PROVIDER: Any = None
 
+# Скрейп Prometheus бʼє ці шляхи кожні 15с. Без виключення вони дають
+# ~5.7 тис. сміттєвих спанів на добу, які засмічують Jaeger. Формат —
+# саме такий, який очікує OTel (comma-separated, парситься через split).
+_NOISY_URLS = "metrics,health,favicon.ico"
+
 
 def get_tracer(name: str) -> Any:
     # Беремо трасер із нашого провайдера, а не з глобального: OTel забороняє
@@ -67,7 +72,11 @@ def setup_tracing(app: Any) -> Any | None:
 
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
-    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
+    # Prometheus скрейпить /metrics кожні 15с — без виключення це ~5.7 тис.
+    # сміттєвих спанів на добу на сервіс, які нічого не дають у Jaeger.
+    FastAPIInstrumentor.instrument_app(
+        app, tracer_provider=provider, excluded_urls=_NOISY_URLS
+    )
     return provider
 
 
