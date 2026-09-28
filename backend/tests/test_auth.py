@@ -44,6 +44,52 @@ async def test_login_wrong_password(client):
     assert resp.status_code == 401
 
 
+async def test_refresh_with_body(client):
+    """Refresh-токен приймається з тіла запиту, а не з query."""
+    await client.post(
+        "/api/v1/auth/register", json={"username": "frank", "password": "password123"}
+    )
+    tokens = (
+        await client.post(
+            "/api/v1/auth/login", json={"username": "frank", "password": "password123"}
+        )
+    ).json()
+
+    resp = await client.post(
+        "/api/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["access_token"]
+    assert body["refresh_token"]
+
+
+async def test_refresh_rejects_query_param(client):
+    """Токен у query-параметрі більше не приймається.
+
+    URL потрапляє в логи проксі, access-логи та історію браузера, тож
+    refresh-токен у query означав би, що довгоживучий секрет лежить у логах.
+    """
+    await client.post(
+        "/api/v1/auth/register", json={"username": "gina", "password": "password123"}
+    )
+    tokens = (
+        await client.post(
+            "/api/v1/auth/login", json={"username": "gina", "password": "password123"}
+        )
+    ).json()
+
+    resp = await client.post(
+        f"/api/v1/auth/refresh?refresh_token={tokens['refresh_token']}"
+    )
+    assert resp.status_code == 422
+
+
+async def test_refresh_rejects_garbage(client):
+    resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": "not-a-token"})
+    assert resp.status_code == 401
+
+
 async def test_me_requires_token(client):
     resp = await client.get("/api/v1/auth/me")
     assert resp.status_code == 401

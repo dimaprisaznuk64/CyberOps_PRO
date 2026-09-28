@@ -9,7 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_session
 from app.dependencies import get_current_user
 from app.models.user import ROLE_USER, User
-from app.schemas.user import PasswordChange, Token, UserCreate, UserLogin, UserOut
+from app.schemas.user import (
+    PasswordChange,
+    RefreshTokenRequest,
+    Token,
+    UserCreate,
+    UserLogin,
+    UserOut,
+)
 from app.services.auth import (
     authenticate,
     create_token,
@@ -61,10 +68,13 @@ async def login(payload: UserLogin, session: AsyncSession = Depends(get_session)
 
 @router.post("/refresh", response_model=Token)
 async def refresh(
-    refresh_token: str,
+    payload: RefreshTokenRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    user_id = decode_refresh(refresh_token)
+    # Токен приходить у тілі, а не в query-параметрі. URL потрапляє в логи
+    # проксі, access-логи та історію браузера, тож refresh-токен у query
+    # означав би, що довгоживучий секрет лежить у логах.
+    user_id = decode_refresh(payload.refresh_token)
     if user_id is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Недійсний refresh-токен")
     user = await session.get(User, user_id)

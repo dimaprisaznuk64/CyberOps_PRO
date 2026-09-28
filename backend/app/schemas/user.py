@@ -47,6 +47,10 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 class Token(BaseModel):
     access_token: str
     refresh_token: str

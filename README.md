@@ -463,7 +463,7 @@ frontend/
 |---|---|---|
 | POST | `/api/v1/auth/register` | public (завжди створює роль `user`) |
 | POST | `/api/v1/auth/login` | public |
-| POST | `/api/v1/auth/refresh` | public |
+| POST | `/api/v1/auth/refresh` | public (refresh-токен у тілі, не в query) |
 | POST | `/api/v1/auth/change-password` | authorized |
 | GET | `/api/v1/auth/me` | authorized |
 | GET | `/api/v1/users/me` | authorized |
