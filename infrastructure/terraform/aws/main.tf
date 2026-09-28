@@ -55,6 +55,19 @@ resource "aws_security_group" "cyberops" {
     cidr_blocks = [var.app_cidr]
   }
 
+  # Фронтенд на :3000 — без цього правила UI на EC2 був просто недістянний
+  # (compose його публікує, але SG не пропускав).
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = [var.app_cidr]
+  }
+
+  # 16686 (Jaeger), 3001 (Grafana), 9090 (Prometheus) свідомо НЕ відкриті:
+  # у compose вони слухають 127.0.0.1, а на сервері в них є власний
+  # admin/admin. Доступ — через SSH-тунель (див. outputs і README).
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -70,9 +83,11 @@ resource "aws_instance" "cyberops" {
   vpc_security_group_ids = [aws_security_group.cyberops.id]
 
   user_data = templatefile("${path.module}/user-data.sh", {
-    repo_url    = var.repo_url
-    repo_branch = var.repo_branch
-    jwt_secret  = random_password.jwt_secret.result
+    repo_url       = var.repo_url
+    repo_branch    = var.repo_branch
+    jwt_secret     = random_password.jwt_secret.result
+    admin_password = var.admin_password
+    app_public_url = var.app_public_url
   })
 
   tags = {
@@ -82,4 +97,10 @@ resource "aws_instance" "cyberops" {
 
 resource "aws_eip" "cyberops" {
   instance = aws_instance.cyberops.id
+}
+
+# Публічна адреса застосунку без порту: заданий домен або EIP інстансу.
+# Використовується в outputs і (за бажання) у user-data.
+locals {
+  app_host = var.app_public_url != "" ? var.app_public_url : "http://${aws_eip.cyberops.public_ip}"
 }

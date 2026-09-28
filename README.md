@@ -24,6 +24,7 @@ web-dashboard.
 | **1.1** | 🔄 | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
 | **1.2–1.5** | 🔄 | App Security (18 CVE) ✅, Jaeger ✅, reaper завислих сканів ✅, сирий Nmap-архів ✅ |
 | **1.6** | 🔄 | Агрегований ризик активу: поточний + історичний максимум, бейджі в UI ✅ |
+| **1.7** | 🔄 | Віддалене розгортання: порти лише gateway/UI, обов'язкові секрети в prod, SSH-тунель до метрик ✅ |
 
 ## Ролі (RBAC)
 
@@ -57,7 +58,7 @@ CyberOps_PRO/
 **Без Docker (потрібна PostgreSQL):**
 
 ```bash
-cp .env.example .env
+cp .env.example .env          # dev-заглушки з коробки робочі; для деплою — свої секрети
 python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r backend/requirements.txt
@@ -78,6 +79,7 @@ cd .. && uvicorn gateway.main:app --reload --port 8000  # gateway -> :8000
 
 ```bash
 docker compose up -d --build
+docker compose exec core alembic upgrade head    # compose не накатує міграції сам
 ```
 
 **Фронтенд без Docker (dev, окремий термінал):**
@@ -250,26 +252,105 @@ Security Group, EIP і user-data, який ставить Docker і розгор
 ```text
 infrastructure/terraform/aws/
 ├── versions.tf      # terraform + providers (aws, random)
-├── variables.tf     # region, key_name, instance_type, repo_url/branch, cidr
+├── variables.tf     # region, key_name, admin_password, instance_type, repo_url/branch, cidr
 ├── main.tf          # VPC Security Group, EC2, user_data, Elastic IP
-├── outputs.tf       # public_ip, ssh_command, gateway_url
+├── outputs.tf       # public_ip, ssh_command, gateway_url, frontend_url, тунель до метрик
 └── user-data.sh     # cloud-init: docker.io + git clone + compose up
 ```
 
 - One EC2: `t3.medium` за замовчуванням (для `--build` образів), SSH-ключ —
   існуючий key pair (`key_name`).
-- SG: `22` (SSH), `80/443`, `8000` (gateway).
-- `JWT_SECRET` генерується через `random_password` і вписується в `.env`.
+- SG: `22` (SSH, обов'язково явно — дефолту `0.0.0.0/0` немає), `80/443`,
+  `8000` (gateway), `3000` (UI).
+- `JWT_SECRET` генерується через `random_password`, пароль адміністратора
+  задається змінною `admin_password` (обидва пишуться в `.env` на інстансі).
 - Використання (потрібні AWS credentials):
 
 ```bash
 cd infrastructure/terraform/aws
 terraform init
-terraform plan -var key_name=my-key
-terraform apply -var key_name=my-key
+terraform plan -var key_name=my-key -var ssh_cidr=203.0.113.10/32 \
+  -var 'admin_password=...'
+terraform apply -var key_name=my-key -var ssh_cidr=203.0.113.10/32 \
+  -var 'admin_password=...' [-var app_public_url=https://cyberops.example.com]
 ```
 
-Outputs: `public_ip`, `ssh_command`, `gateway_url` (gateway:8000).
+Outputs: `public_ip`, `ssh_command`, `gateway_url`, `frontend_url`,
+`observability_ssh_tunnel`. Див. наступний розділ — саме він пояснює, що
+`app_public_url` такий, яким він є.
+
+## Віддалене розгортання (v1.7)
+
+Локально `docker compose up` працює «просто», і саме через це три речі
+ламаються на справжньому сервері.
+
+**1. Публічні порти.** У `docker-compose.yml` ззовні слухають лише
+`gateway:8000` і `frontend:3000` — саме їх браузер має бачити. Усе інше
+(Postgres, Redis, RabbitMQ, внутрішні `core`/`auth`, Prometheus, Jaeger,
+Grafana) прив'язане до `127.0.0.1`. Метрики на EC2 доступні через
+SSH-тунель (значення `observability_ssh_tunnel` в terraform outputs):
+
+```bash
+ssh -N -L 3001:localhost:3001 -L 16686:localhost:16686 -L 9090:9090 \
+  -i my-key.pem ubuntu@<ip>
+# Grafana :3001, Jaeger :16686, Prometheus :9090
+```
+
+Це не косметика: дефолтний compose відкривав `:5432` з `admin/admin`
+seed-користувачем у публічний інтернет.
+
+**2. `NEXT_PUBLIC_API_URL` вшивається в бандл під час збірки.** Зібраний
+на сервері фронтенд із дефолтом `http://localhost:8000` звертатиметься до
+`localhost:8000` у браузері відвідувача: UI відкривається, але порожній, і
+симптом виглядає як «бекенд зламався». `docker-compose.prod.yml` робить цю
+змінну обов'язковою (`${NEXT_PUBLIC_API_URL:?...}`), тож compose падає на
+старті, а не мовчки.
+
+**3. Секрети.** Базовий compose має dev-дефолти (`JWT_SECRET=dev-secret-...`,
+`ADMIN_PASSWORD=admin`) — для локальної розробки це зручно, для публічного
+інстансу це діра. Prod-override перетворює їх на обов'язкові:
+
+| Змінна | Що робить prod-override |
+|---|---|
+| `JWT_SECRET` | обов'язкова для `core`/`auth`/`worker`/`gateway` (інакше `dev-secret-change-me...`) |
+| `POSTGRES_PASSWORD` | обов'язкова для БД і `DATABASE_URL` |
+| `ADMIN_PASSWORD` | обов'язкова (інакше `admin/admin` на публічній адресі) |
+| `CORS_ORIGINS` | обов'язкова і має містити origin фронтенду, а не `*` |
+| `NEXT_PUBLIC_API_URL` | обов'язкова, див. вище |
+| `GRAFANA_ADMIN_PASSWORD` | обов'язкова |
+| `APP_ENV` | `prod` замість `dev` |
+
+Плюс `restart: unless-stopped` і `json-file` з лімітом (`10m` × `3`) на
+кожен сервіс: без ліміту логи з'їдають диск t3.medium і кладуть весь стек.
+
+```bash
+cp .env.example .env   # обов'язково відредагувати секрети
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec core alembic upgrade head
+make up-prod           # = docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+make config-prod       # валідація конфігів (CI робить те саме)
+```
+
+Секрети, які лишилися шаблонними (зокрема `ADMIN_PASSWORD=admin`),
+застосунок у `APP_ENV=prod` не приймає — стек підніметься з явним
+помилкою, а не мовчки з admin/admin.
+
+**Terraform + compose.** `user-data.sh` клонує репозиторій, пише в `.env`
+секрети й публічну адресу, піднімає стек через prod-override і друкує
+URL-и. Один нюанс: EIP доставляється **після** старту інстансу, тому на
+першому boot визначення адреси може вихопити тимчасовий auto-assigned IP,
+який помре разом з EIP. Тому:
+
+- передавайте `-var app_public_url=https://cyberops.example.com` (свій
+  домен) — це найкращий шлях;
+- або після `terraform apply` перенаправте стек на фактичний EIP однією
+  командою:
+
+```bash
+scripts/remote-configure.sh ubuntu@<eip> http://<eip>
+```
+
+Скрипт перезаписує `NEXT_PUBLIC_API_URL`/`CORS_ORIGINS`/`APP_BASE_URL` у
+`.env` на інстансі і робить `compose up -d`.
 
 ## Security Lab (v1.0)
 

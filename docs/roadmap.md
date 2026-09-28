@@ -23,11 +23,15 @@
 | v1.4 | ✅ | Завислі скан: 503 при недоступному брокері + celery beat-збирач | (поточний) |
 | v1.5 | ✅ | Архів сирого Nmap-XML: gzip у БД, /raw + /raw.xml, «deep»-парсер, панель у UI | (поточний) |
 | v1.6 | ✅ | Агрегований ризик активу: поточний + історичний максимум, сортування в UI | (поточний) |
+| v1.7 | ✅ | Віддалене розгортання: порти лише gateway/UI, обов'язкові секрети, prod-override, SSH-тунель до метрик | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
 - `dcf3a56` — frontend: `/health` повертає `services` словником, не масивом → render `Object.entries`.
 - `8500c07` — worker: SQLAlchemy async-пул не можна перевикористовувати між Celery-тасками (`asyncio.run` на кожен таск) → окремий engine з `NullPool`. Симптом: «Task attached to a different loop» на 2-му сканi, scan зависає у `pending`.
+- **v1.7 (знайдено смоук-тестом на живому стенді)** — ворер кладав у `scans.raw_xml_gz` не байти, а `packed[0]`, тобто перший байт gzip (`0x1f` = 31). Запис падав (`a bytes-like object is required, not 'int'`), скан лишався `running` до reaper'а — тобто **кожне** сканування ламалося на реальному запуску, хоча CI був зелений: `test_scan_raw_archive.py` писав архів у БД руками, цю ділянку не виконуючи. Виправлено + 3 тести на реальний шлях воркера (`tests/test_worker_scan_archive.py`).
+- **v1.7** — `cp .env.example .env` (документований крок) давав `JWT_SECRET` у 27 байт, а застосунок вимагає ≥32 → `core` падав на `ValidationError` ще з v1.2. Заглушка в `.env.example` подовжена до 45 байт і додана до `PLACEHOLDER_SECRETS`, тож dev піднімається, а production її відхиляє.
+- **v1.7** — `admin_password` не мав жодної перевірки: compose-override вимагає змінну, але значення `admin` її задовольняє. Додано `PLACEHOLDER_PASSWORDS` і відмову в `APP_ENV=production` (6 тестів).
 
 ## Відомі незакриті пункти плану (наступні пріоритети)
 
@@ -128,8 +132,28 @@
     непросканований актив — сірий «не скановано» (RiskPill для `null` показував
     би LOW, тобто вигаданий безпечний стан);
   - 7 тестів (`tests/test_assets.py`), всього 170.
-- **`docker compose` для frontend** — підтримати `NEXT_PUBLIC_API_URL` як
-  build-arg (вже є) і задокументувати remote-розгортання (terraform + CORS).
+- **Віддалене розгортання (compose + terraform)** — ✅ закрито у v1.7:
+  - `docker-compose.yml`: ззовні слухають лише `gateway:8000` і `frontend:3000`,
+    решта (postgres, redis, rabbitmq, core, auth, prometheus, jaeger, grafana,
+    mailpit) — на `127.0.0.1`. Локально нічого не змінюється, а на EC2
+    дефолтний compose більше не відкриває `:5432` з `admin/admin` у інтернет.
+    Метрики — через SSH-тунель (див. `observability_ssh_tunnel` в outputs);
+  - `docker-compose.prod.yml` (override, `make up-prod`): секрети зроблені
+    обов'язковими через `${VAR:?}` (JWT_SECRET, POSTGRES_PASSWORD,
+    ADMIN_PASSWORD, CORS_ORIGINS, NEXT_PUBLIC_API_URL, GRAFANA_ADMIN_PASSWORD),
+    `APP_ENV=prod`, `restart: unless-stopped` і ліміт логів `10m`×`3` на
+    кожен сервіс (без ліміту json-file з'їдає диск t3.medium);
+  - справжній баг у remote: `NEXT_PUBLIC_API_URL` вшивається в бандл під час
+    збірки, тож фронтенд на сервері йшов у `localhost:8000` браузера
+    відвідувача — UI порожній, симптом виглядає як зламаний бекенд. Тепер
+    змінна обов'язкова + `scripts/remote-configure.sh` для перенаведення
+    стенду на іншу адресу після EIP;
+  - terraform: SG відкриває `3000` (без нього UI на EC2 був недістянний) і
+    більше не відкриває `22` у `0.0.0.0/0` (`ssh_cidr` без дефолту);
+    додано `admin_password` (required) і `app_public_url` (щоб обійти гонку
+    з EIP, який доставляється після старту інстансу);
+  - 5 тестів (`tests/test_compose_exposure.py`) на інваріанти «що світиться
+    назовні» + обов'язковість секретів + 3 на шлях воркера до архіву, всього 184.
 - **Завислі скан** — ✅ закрито у v1.4:
   - корінь проблеми: `create_scan` комітив рядок у БД і лише потім робив
     `enqueue()`; при недоступному брокері API падав у 500, а рядок лишався
@@ -170,7 +194,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (170)
+cd backend && python -m pytest tests -q # тести (184)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

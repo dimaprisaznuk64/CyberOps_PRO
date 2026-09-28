@@ -10,9 +10,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MIN_JWT_SECRET_BYTES = 32
 PLACEHOLDER_SECRETS = {
     "dev-secret-change-me-before-production",
+    "dev-only-insecure-secret-change-me-1234567890",
     "change-me-in-production-now",
     "change-me-in-prod",
 }
+PLACEHOLDER_PASSWORDS = {"admin", "password", "changeme", "change-me", "secret"}
 
 
 class Settings(BaseSettings):
@@ -21,6 +23,7 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     debug: bool = True
     log_json: bool = False
+    app_version: str = "1.7.0"
 
     database_url: str = "postgresql+asyncpg://cyberops:cyberops@localhost:5432/cyberops"
 
@@ -38,7 +41,6 @@ class Settings(BaseSettings):
     # Jaeger групує спани за service.name, тому кожен сервіс має назвати себе
     # інакше всі сліди злипаються в один «unknown_service».
     tracing_service_name: str = "core"
-    app_version: str = "1.2.0"
     worker_metrics_port: int = 9091
 
     scan_allow_public: bool = False
@@ -75,6 +77,19 @@ class Settings(BaseSettings):
 
     admin_username: str = "admin"
     admin_password: str = "admin"
+
+    @field_validator("admin_password")
+    @classmethod
+    def _validate_admin_password(cls, value: str, info: Any) -> str:
+        # Пароль seed-адміністратора — це фактично другий публічний вхід у
+        # систему, а compose-override вимагає змінну, але «admin» її
+        # задовольняє. Тому в production-режимі шаблонні значення відсікаються.
+        if info.data.get("app_env") == "production" and value.lower() in PLACEHOLDER_PASSWORDS:
+            raise ValueError(
+                "ADMIN_PASSWORD досі шаблонний — публічний інстанс із admin/admin "
+                "не є демо, а дірою; задайте власний"
+            )
+        return value
 
     ai_provider: str = ""
     ai_model: str = "gpt-4o-mini"

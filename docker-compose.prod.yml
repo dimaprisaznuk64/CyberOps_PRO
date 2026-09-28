@@ -1,0 +1,97 @@
+# Віддалене/публічне розгортання поверх docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Три речі, які ламаються на реальному сервері, але не видно на localhost:
+#
+# 1. Секрети. Базовий файл має dev-дефолти (JWT_SECRET=dev-secret-...,
+#    ADMIN_PASSWORD=admin) — для публічного інстансу це неприйнятно, тому
+#    тут вони Required (${VAR:?...}): compose зупиняється на старті, а не
+#    піднімає застосунок з паролем admin/admin.
+# 2. NEXT_PUBLIC_API_URL вшивається в бандл ПІД ЧАС БУДІВНИКУ. Якщо лишити
+#    дефолт http://localhost:8000, зібраний фронтенд на сервері звертатися
+#    до localhost:8000 у браузера відвідувача, а не до сервера — UI відкриється
+#    порожнім, і помилка виглядає як «бекенд зламався». Тому змінна обов'язкова.
+# 3. CORS_ORIGINS=* на публічній адресі — будь-який сайт може ганяти
+#    запити від імені відвідувача. Тут обов'язковий явний список origin'ів
+#    (через кому, як у gateway).
+
+name: cyberops
+
+x-prod-defaults: &prod-defaults
+  # На EC2 після перезавантаження або падіння брокера контейнери мають
+  # піднятися самі.
+  restart: unless-stopped
+  # json-file без обмеження росту на t3.medium з'їдає диск за добри,
+  # і тоді стек лежить з повним /var/lib/docker.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *prod-defaults
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cyberops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-cyberops}
+
+  redis:
+    <<: *prod-defaults
+
+  rabbitmq:
+    <<: *prod-defaults
+
+  core:
+    <<: *prod-defaults
+    environment:
+      APP_ENV: prod
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-cyberops}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>=32 chars) in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to the frontend origin}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+
+  auth:
+    <<: *prod-defaults
+    environment:
+      APP_ENV: prod
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-cyberops}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>=32 chars) in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to the frontend origin}
+
+  worker:
+    <<: *prod-defaults
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cyberops}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-cyberops}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>=32 chars) in .env}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to the frontend origin}
+
+  gateway:
+    <<: *prod-defaults
+    environment:
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>=32 chars) in .env}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to the frontend origin}
+
+  frontend:
+    <<: *prod-defaults
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL to the public gateway URL, e.g. http://1.2.3.4:8000}
+
+  jaeger:
+    <<: *prod-defaults
+
+  prometheus:
+    <<: *prod-defaults
+
+  grafana:
+    <<: *prod-defaults
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"

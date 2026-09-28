@@ -144,6 +144,8 @@ async def _run_scan(
     risk_score = compute_risk_score(findings)
     risk_level = risk_level_from_score(risk_score)
     # Сирий XML — найбільша частина результату, тож у базі лежить стиснутим.
+    # pack_raw_xml() уже віддає готовий gzip-байт, а не контейнер: packed[0]
+    # тут був би першим байтом (0x1f), і запис падав би навіть на валідних XML.
     packed, raw_size, raw_sha = pack_raw_xml(xml_text)
 
     async with SessionLocal() as session:
@@ -175,7 +177,7 @@ async def _run_scan(
             .where(Scan.id == scan_id)
             .values(
                 status=SCAN_DONE,
-                raw_xml_gz=packed[0],
+                raw_xml_gz=packed,
                 raw_xml=None,
                 result=parsed,
                 risk_score=risk_score,

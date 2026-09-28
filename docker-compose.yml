@@ -1,5 +1,11 @@
 name: cyberops
 
+# Публічно слухають лише gateway (:8000) і frontend (:3000) — саме їх браузер
+# має бачити ззовні. Усе інше (БД, брокери, внутрішні API, метрики) прив'язане
+# до 127.0.0.1: локально це нічого не змінює (доступ з хост-машини лишається), а на віддаленому
+# EC2 не світить Postgres/Redis/RabbitMQ/Grafana у весь інтернет. Див.
+# docker-compose.prod.yml і README «Віддалене розгортання».
+
 x-notify-environment: &notify-environment
   NOTIFICATIONS_ENABLED: ${NOTIFICATIONS_ENABLED:-true}
   APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
@@ -51,7 +57,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cyberops}
       POSTGRES_DB: ${POSTGRES_DB:-cyberops}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -63,7 +69,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -73,8 +79,8 @@ services:
   rabbitmq:
     image: rabbitmq:3-management-alpine
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
@@ -92,7 +98,7 @@ services:
       <<: *backend-environment
       TRACING_SERVICE_NAME: core
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')"]
       interval: 10s
@@ -114,7 +120,7 @@ services:
       <<: *backend-environment
       TRACING_SERVICE_NAME: auth
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')"]
       interval: 10s
@@ -211,8 +217,8 @@ services:
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
-      - "16686:16686"   # UI
-      - "4318:4318"     # OTLP/HTTP (для otel-продуктів поза compose)
+      - "127.0.0.1:16686:16686"   # UI
+      - "127.0.0.1:4318:4318"     # OTLP/HTTP (для otel-продуктів поза compose)
     depends_on:
       - gateway
 
@@ -221,7 +227,7 @@ services:
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     depends_on:
       - gateway
 
@@ -233,7 +239,7 @@ services:
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
     depends_on:
       - prometheus
 
@@ -244,8 +250,8 @@ services:
     image: axllent/mailpit:v1.21
     profiles: ["mail"]
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
 volumes:
   pgdata:

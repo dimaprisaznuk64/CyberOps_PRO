@@ -33,6 +33,19 @@ jobs:
       - name: Compose validation
         run: docker compose config -q
 
+      - name: Compose validation (prod override)
+        # Прод-override робить секрети обов'язковими (${VAR:?...}), тож для
+        # валідації підставляємо фікстури: інакше CI падав би на compose
+        # interpolation, а не на синтаксисі самого файлу.
+        env:
+          JWT_SECRET: ci-fixture-secret-value-not-used-anywhere-32
+          POSTGRES_PASSWORD: ci-fixture
+          ADMIN_PASSWORD: ci-fixture
+          CORS_ORIGINS: http://localhost:3000
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          GRAFANA_ADMIN_PASSWORD: ci-fixture
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config -q
+
       - name: Kubernetes manifests validation
         run: kubectl kustomize infrastructure/kubernetes/overlays/dev > /dev/null
 
