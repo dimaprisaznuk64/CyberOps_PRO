@@ -4,9 +4,9 @@ metadata:
   name: cyberops-config
 data:
   APP_ENV: prod
-  # NOTE: DATABASE_URL містить dev-пароль для простоти демо. У продакшені
-  # збирайте URL з секретів (or use a cloud DB engine).
-  DATABASE_URL: postgresql+asyncpg://cyberops:cyberops@postgres:5432/cyberops
+  # DATABASE_URL і CORS_ORIGINS перенесені в cyberops-secrets. Перший містить
+  # пароль (ConfigMap для цього не призначений), другий — середовищний
+  # параметр, який не має бути у базовому манифесті зі значенням "*".
   CELERY_BROKER_URL: redis://redis:6379/0
   RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
   EVENTS_ENABLED: "true"
@@ -18,7 +18,7 @@ data:
   SCAN_REAPER_INTERVAL_SECONDS: "60"
   # Ліміт сирого Nmap-XML у JSON-відповіді архіву (понад — лише .xml)
   SCAN_RAW_XML_MAX_CHARS: "400000"
-  CORS_ORIGINS: "*"
+  # CORS_ORIGINS — у cyberops-secrets (див. коментар вище)
   AUTH_SERVICE_URL: http://auth:8002
   CORE_SERVICE_URL: http://core:8001
   # Rate limiting gateway. Лічильник у пам'яті, тому replicas: 1 — інакше
