@@ -6,7 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.dependencies import get_current_user, require_analyst
+from app.models.asset import Asset
 from app.models.report import Report
+from app.models.scan import Scan
 from app.models.user import User
 from app.schemas.report import ReportCreate, ReportDetailOut, ReportOut
 from app.services.events import EventPublisher, get_publisher
@@ -36,6 +38,39 @@ async def _get_report_or_404(report_id: int, user: User, session: AsyncSession) 
     return report
 
 
+async def _assert_report_target_allowed(
+    session: AsyncSession,
+    user: User,
+    report_type: str,
+    asset_id: int | None,
+    scan_id: int | None,
+) -> None:
+    """Не дає будувати звіт за об'єктом, до якого користувач не має доступу.
+
+    Раніше тут не було жодної перевірки: достатньо було знати ID чужого актива
+    або сканування, і звіт збирався — разом із усіма сервісами, знахідками та
+    ризиком цілі. Це класичний IDOR: ендпойнт приймав ID, а не об'єкт.
+
+    Правила беремо ті самі, що в читанні, щоб модель ролей була послідовною:
+    актив — за `owner_id`, сканування — за `created_by`. Аналітик і адмін
+    бачать все, як у findings і scans. Відповідь 404, а не 403, щоб не
+    підтверджувати існування об'єкта для того, хто не має до нього доступу.
+    """
+    if report_type == REPORT_TYPE_ASSET:
+        if asset_id is None:
+            return
+        asset = await session.get(Asset, asset_id)
+        if asset is None or (asset.owner_id != user.id and user.role != "admin"):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Актив не знайдено")
+        return
+
+    if scan_id is None:
+        return
+    scan = await session.get(Scan, scan_id)
+    if scan is None or (scan.created_by != user.id and user.role not in ("admin", "analyst")):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Сканування не знайдено")
+
+
 @router.post("", response_model=ReportDetailOut, status_code=status.HTTP_201_CREATED)
 async def create_report(
     payload: ReportCreate,
@@ -51,6 +86,10 @@ async def create_report(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Потрібен asset_id")
     if payload.report_type == REPORT_TYPE_SCAN and payload.scan_id is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Потрібен scan_id")
+
+    await _assert_report_target_allowed(
+        session, _, payload.report_type, payload.asset_id, payload.scan_id
+    )
 
     try:
         if payload.report_type == REPORT_TYPE_ASSET:

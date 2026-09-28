@@ -133,6 +133,87 @@ async def test_reports_validation(client):
     assert resp.status_code == 404
 
 
+async def test_report_on_missing_target_is_404(client):
+    """Звіт за неіснуючим об'єктом — 404, а не 500 і не порожній звіт."""
+    token = await login(client, "analyst", "analyst1234")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.post(
+        "/api/v1/reports",
+        json={"title": "x", "report_type": "asset", "asset_id": 999999},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+    resp = await client.post(
+        "/api/v1/reports",
+        json={"title": "x", "report_type": "scan", "scan_id": 999999},
+        headers=headers,
+    )
+    assert resp.status_code == 404
+
+
+async def _promote_to_analyst(client, username: str) -> None:
+    admin_token = await login(client, "admin", "admin1234")
+    users = await client.get(
+        "/api/v1/users", headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    target = next(u for u in users.json() if u["username"] == username)
+    await client.patch(
+        f"/api/v1/users/{target['id']}/role",
+        json={"role": "analyst"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+
+
+async def test_analyst_cannot_report_on_others_asset(client, session_factory):
+    """Актив бачить лише власник або admin — і звіт по ньому теж.
+
+    Правило беремо з assets.py:47, тож модель ролей послідовна: аналітик не
+    бачить чужого актива і не може зібрати по ньому звіт, навіть знаючи ID.
+    """
+    owner_token = await login(client, "analyst", "analyst1234")
+    asset_id, _ = await _seed_asset_and_scan(client, owner_token, session_factory)
+
+    await client.post(
+        "/api/v1/auth/register", json={"username": "second_analyst", "password": "password123"}
+    )
+    await _promote_to_analyst(client, "second_analyst")
+    other_token = await login(client, "second_analyst", "password123")
+
+    resp = await client.post(
+        "/api/v1/reports",
+        json={"title": "Чужий актив", "report_type": "asset", "asset_id": asset_id},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert resp.status_code == 404
+
+
+async def test_analyst_can_report_on_others_scan(client, session_factory):
+    """Сканування аналітик бачить усі — і звіт по чужому скану теж.
+
+    Правило беремо з scans.py:52-53. Тест фіксує це рішення: якщо модель
+    колись змінять на «аналітик — тільки свої», тест впаде і про це доведеться
+    подумати свідомо.
+    """
+    owner_token = await login(client, "analyst", "analyst1234")
+    _, scan_id = await _seed_asset_and_scan(client, owner_token, session_factory)
+
+    await client.post(
+        "/api/v1/auth/register", json={"username": "third_analyst", "password": "password123"}
+    )
+    await _promote_to_analyst(client, "third_analyst")
+    other_token = await login(client, "third_analyst", "password123")
+
+    resp = await client.post(
+        "/api/v1/reports",
+        json={"title": "Чужий скан", "report_type": "scan", "scan_id": scan_id},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["content"]["summary"]["total_scans"] == 1
+
+
 async def test_reports_list_and_access(client, session_factory):
     analyst_token = await login(client, "analyst", "analyst1234")
     analyst_headers = {"Authorization": f"Bearer {analyst_token}"}
