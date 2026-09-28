@@ -47,7 +47,77 @@ export interface Scan {
 
 export interface ScanResult extends Scan {
   result?: Record<string, unknown> | null;
-  raw_xml?: string | null;
+}
+
+export interface NmapScript {
+  id: string;
+  output: string;
+  elements?: Record<string, string>;
+}
+
+export interface NmapPort {
+  port: number;
+  protocol: string;
+  state: string;
+  service: string;
+  product: string;
+  version: string;
+  cpe: string;
+  scripts?: NmapScript[];
+}
+
+export interface NmapOsMatch {
+  name: string;
+  accuracy: number;
+  family: string;
+}
+
+export interface NmapHost {
+  address: string;
+  status: string;
+  hostname: string;
+  hostnames: { name: string; type: string }[];
+  os_matches: NmapOsMatch[];
+  status_reason?: string;
+  uptime?: string;
+  distance?: string;
+  host_scripts?: NmapScript[];
+  ports: NmapPort[];
+}
+
+export interface NmapScaninfo {
+  type: string;
+  protocol: string;
+  num_services: number | null;
+}
+
+export interface NmapRun {
+  command?: string;
+  nmap_args?: string;
+  nmap_version?: string;
+  scaninfo?: NmapScaninfo;
+  stats?: {
+    elapsed?: number | null;
+    hosts_up?: number;
+    hosts_down?: number;
+    hosts_total?: number;
+  };
+  hosts: NmapHost[];
+}
+
+/** GET /api/v1/scans/{id}/raw — архів сирого nmap-XML. */
+export interface ScanRaw {
+  scan_id: number;
+  available: boolean;
+  size_bytes: number;
+  sha256: string;
+  nmap_version: string;
+  nmap_args: string;
+  hosts_count: number;
+  truncated: boolean;
+  compressed: boolean;
+  xml: string | null;
+  parsed: NmapRun | null;
 }
 
 export interface Service {

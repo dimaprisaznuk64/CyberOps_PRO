@@ -16,6 +16,8 @@ data:
   # Прибирання завислих сканів (celery beat у воркері)
   SCAN_STALE_AFTER_SECONDS: "900"
   SCAN_REAPER_INTERVAL_SECONDS: "60"
+  # Ліміт сирого Nmap-XML у JSON-відповіді архіву (понад — лише .xml)
+  SCAN_RAW_XML_MAX_CHARS: "400000"
   CORS_ORIGINS: "*"
   AUTH_SERVICE_URL: http://auth:8002
   CORE_SERVICE_URL: http://core:8001

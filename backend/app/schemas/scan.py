@@ -36,8 +36,29 @@ class ScanOut(BaseModel):
 
 
 class ScanResultOut(ScanOut):
+    # Сирий XML навмисно не віддається тут: для -sV з NSE це сотні кілобайт на
+    # кожне відкриття сторінки. Див. GET /api/v1/scans/{id}/raw.
     result: dict[str, Any] | None = None
-    raw_xml: str | None = None
+
+
+class ScanRawOut(BaseModel):
+    """Метадані архіву сирого nmap-XML + розпарсений «deep»-результат.
+
+    xml не віддається, якщо він більший за scan_raw_xml_max_chars: обрізаний
+    XML невалидний і вводить в оману, краще одразу запропонувати завантаження.
+    """
+
+    scan_id: int
+    available: bool
+    size_bytes: int = 0
+    sha256: str = ""
+    nmap_version: str = ""
+    nmap_args: str = ""
+    hosts_count: int = 0
+    truncated: bool = False
+    compressed: bool = False
+    xml: str | None = None
+    parsed: dict[str, Any] | None = None
 
 
 class ScanRiskOut(BaseModel):

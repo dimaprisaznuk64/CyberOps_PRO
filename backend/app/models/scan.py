@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import JSON, DateTime, ForeignKey, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -36,7 +36,10 @@ class Scan(Base):
     scan_type: Mapped[str] = mapped_column(String(20), default=SCAN_TYPE_TCP, nullable=False)
     ports: Mapped[str | None] = mapped_column(String(255), nullable=True)
     command: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Сирий nmap XML зберігається стиснутим: gz дає ~10x економії на -sV з NSE.
+    # raw_xml лишився для рядків, записаних до 0007 (див. app/services/raw_nmap.py).
     raw_xml: Mapped[str | None] = mapped_column(Text, nullable=True)
+    raw_xml_gz: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

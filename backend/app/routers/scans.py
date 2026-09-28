@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
+from app.config import settings
 from app.database import get_session
 from app.dependencies import get_current_user, require_analyst
 from app.models.asset import Asset
@@ -13,17 +15,39 @@ from app.models.finding import Finding
 from app.models.scan import SCAN_PENDING, Scan
 from app.models.service import Service
 from app.models.user import User
-from app.schemas.scan import ScanCreate, ScanOut, ScanResultOut, ScanRiskOut
+from app.schemas.scan import (
+    ScanCreate,
+    ScanOut,
+    ScanRawOut,
+    ScanResultOut,
+    ScanRiskOut,
+)
 from app.schemas.service import ServiceOut
 from app.services.netguard import HostNotAllowedError, assert_host_allowed
+from app.services.raw_nmap import (
+    RAW_XML_MEDIA_TYPE,
+    RawArchiveError,
+    archive_metadata,
+    raw_xml_filename,
+    unpack_raw_xml,
+)
 from app.services.scans import mark_enqueue_failed
 from app.tasks import get_task_enqueuer
 
 router = APIRouter(prefix="/api/v1/scans", tags=["scans"])
 
+# Сирий XML — найважча колонка таблиці, тож у запитах, які його не показують,
+# вантажити її не треба (заодно не тягнеться гігабайт у RAM аналітика).
+_DEFERRED_RAW = (defer(Scan.raw_xml), defer(Scan.raw_xml_gz))
 
-async def _get_scan_or_404(scan_id: int, user: User, session: AsyncSession) -> Scan:
-    scan = await session.get(Scan, scan_id)
+
+async def _get_scan_or_404(
+    scan_id: int, user: User, session: AsyncSession, *, with_raw: bool = False
+) -> Scan:
+    if with_raw:
+        scan = await session.get(Scan, scan_id)
+    else:
+        scan = await session.scalar(select(Scan).where(Scan.id == scan_id).options(*_DEFERRED_RAW))
     if scan is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Сканування не знайдено")
     if scan.created_by != user.id and user.role not in ("admin", "analyst"):
@@ -134,4 +158,58 @@ async def get_scan_risk(
         risk_level=scan.risk_level or "LOW",
         services_count=services_count or 0,
         findings_by_severity=counts,
+    )
+
+
+@router.get("/{scan_id}/raw", response_model=ScanRawOut)
+async def get_scan_raw(
+    scan_id: int,
+    include_xml: bool = Query(default=True, description="Включити сам XML у відповідь"),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Метадані та «deep»-розбір сирого nmap-XML (hostnames, OS, NSE, runstats)."""
+    scan = await _get_scan_or_404(scan_id, user, session, with_raw=True)
+    try:
+        xml_text = unpack_raw_xml(scan)
+    except RawArchiveError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+
+    payload = ScanRawOut(scan_id=scan.id, **archive_metadata(scan, xml_text))
+    if xml_text is None:
+        return payload
+
+    payload.compressed = scan.raw_xml_gz is not None
+    payload.parsed = scan.result
+    if not include_xml:
+        return payload
+    if len(xml_text) > settings.scan_raw_xml_max_chars:
+        payload.truncated = True
+        return payload
+    payload.xml = xml_text
+    return payload
+
+
+@router.get("/{scan_id}/raw.xml")
+async def download_scan_raw(
+    scan_id: int,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Сирий nmap-XML файлом (для офлайн-аналізу і збереження як доказу)."""
+    scan = await _get_scan_or_404(scan_id, user, session, with_raw=True)
+    try:
+        xml_text = unpack_raw_xml(scan)
+    except RawArchiveError as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+    if xml_text is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Сирий Nmap-звіт відсутній для цього сканування"
+        )
+    return Response(
+        content=xml_text.encode("utf-8"),
+        media_type=RAW_XML_MEDIA_TYPE,
+        headers={
+            "Content-Disposition": f'attachment; filename="{raw_xml_filename(scan)}"'
+        },
     )

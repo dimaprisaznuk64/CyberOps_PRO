@@ -22,6 +22,7 @@ web-dashboard.
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
 | **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
 | **1.1** | 🔄 | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
+| **1.2–1.5** | 🔄 | App Security (18 CVE) ✅, Jaeger ✅, reaper завислих сканів ✅, сирий Nmap-архів ✅ |
 
 ## Ролі (RBAC)
 
@@ -371,6 +372,8 @@ frontend/
 | GET | `/api/v1/scans/{id}` | owner / analyst / admin |
 | GET | `/api/v1/scans/{id}/services` | owner / analyst / admin |
 | GET | `/api/v1/scans/{id}/risk` | owner / analyst / admin |
+| GET | `/api/v1/scans/{id}/raw` | owner / analyst / admin; `?include_xml=false` — без самого XML |
+| GET | `/api/v1/scans/{id}/raw.xml` | owner / analyst / admin (download сирого Nmap-XML) |
 | GET | `/api/v1/findings` | owner (свої) / analyst / admin; фільтри `?severity=&scan_id=` |
 | POST | `/api/v1/findings/{id}/explain` | owner / analyst / admin (AI Assistant) |
 | POST | `/api/v1/reports` | analyst / admin (201; `report_type=asset\|scan`) |
@@ -419,6 +422,30 @@ Swagger: `http://localhost:8000/docs`
     воркера, OOM-рестарт контейнера та повідомлення, що загубилося в брокері;
   - `SCAN_STALE_AFTER_SECONDS` має бути **більший** за `NMAP_TIMEOUT_SECONDS`,
     інакше beat вб'є ще живий скан.
+
+### Сирий Nmap-архів (v1.5)
+
+Після сканування worker зберігає **повний XML від nmap** — це первинний доказ
+того, що саме бачила ціль. Архів стискається gzip-ом (`scans.raw_xml_gz`,
+міграція `0007_scan_raw_archive`) і доступний двома способами:
+
+| Запит | Що віддає |
+|---|---|
+| `GET /api/v1/scans/{id}/raw` | метадані (розмір, SHA-256, версія nmap, число хостів) + розпарсений «deep»-результат; сам XML — лише якщо вміщується в `SCAN_RAW_XML_MAX_CHARS` (за замовчуванням 400k), інакше `truncated: true` |
+| `GET /api/v1/scans/{id}/raw.xml` | файл `nmap-<host>-<id>.xml` (`Content-Disposition: attachment`) для офлайн-аналізу |
+
+- `GET /api/v1/scans/{id}` **більше не віддає** сирий XML: для `-sV` з NSE це
+  сотні кілобайт на кожне відкриття сторінки. Крім того, ендпоинти, які не
+  показують архів, відкладають (`defer`) завантаження колонки.
+- Що з'явилося в розпарсеному `result` (те, що парсер раніше викидав):
+  версія та аргументи nmap, `scaninfo`, **усі** hostname'и, OS-відпечатки з
+  точністю, NSE-вивід скриптів (хостів і портів, обрізаний до 4000 символів),
+  `uptime`/`distance`, `runstats` (elapsed, hosts up/down/total).
+- Старі рядки, записані до міграції, лежать у plain-колонці `raw_xml` — читання
+  їх працює, нових записів туди немає.
+- UI: панель «Сирий Nmap-архів» на `scans/[id]` — метадані, картки хостів з
+  OS/скриптами, кнопки «Завантажити .xml» та «Показати сирий XML» (XML
+  вантажиться лише за кліком, бо на /24 це мегабайти).
 
 ### Services, Findings, Risk Score
 

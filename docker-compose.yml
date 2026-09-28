@@ -31,6 +31,8 @@ x-backend-service: &backend-service
     EVENTS_ENABLED: ${EVENTS_ENABLED:-true}
     REALTIME_MODE: ${REALTIME_MODE:-redis}
     SCAN_ALLOW_PUBLIC: ${SCAN_ALLOW_PUBLIC:-false}
+    # Ліміт сирого Nmap-XML у JSON-відповіді архіву (понад — лише .xml)
+    SCAN_RAW_XML_MAX_CHARS: ${SCAN_RAW_XML_MAX_CHARS:-400000}
     JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me-before-production}
     ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
     ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin}

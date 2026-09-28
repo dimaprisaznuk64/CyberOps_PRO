@@ -43,6 +43,9 @@ class Settings(BaseSettings):
 
     scan_allow_public: bool = False
     nmap_timeout_seconds: int = 300
+    # Скільки символів сирого nmap-XML вкладати у JSON-відповідь архіву.
+    # Більше — віддаємо лише метадані, а сам файл качається окремим запитом.
+    scan_raw_xml_max_chars: int = 400_000
     # Скан вважається завислим, якщо довше за цей час не дійшов до finished_at.
     # Запас має перекривати nmap_timeout_seconds, інакше reaper вб'є ще живий скан.
     scan_stale_after_seconds: int = 900

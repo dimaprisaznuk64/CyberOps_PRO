@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { AIExplain } from "@/components/AIExplain";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RiskPill, SeverityPill, StatusPill } from "@/components/Pills";
+import { ScanRawArchive } from "@/components/ScanRawArchive";
 import { StatCard } from "@/components/StatCard";
 import { get } from "@/lib/api";
 import type { Finding, ScanResult, ScanRisk, Service } from "@/lib/types";
@@ -159,6 +160,8 @@ export default function ScanDetailPage() {
           </tbody>
         </table>
       </div>
+
+      <ScanRawArchive scanId={scanId} status={scan?.status} />
     </RequireAuth>
   );
 }

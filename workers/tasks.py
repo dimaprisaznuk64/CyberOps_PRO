@@ -31,6 +31,7 @@ from app.services.metrics import (
     scan_services_total,
 )
 from app.services.notifications import build_notifications, deliver, prefs_from_user
+from app.services.raw_nmap import pack_raw_xml
 from app.services.realtime import (
     MESSAGE_NOTIFICATION_CREATED,
     MESSAGE_SCAN_COMPLETED,
@@ -142,6 +143,8 @@ async def _run_scan(
     findings = derive_findings(services)
     risk_score = compute_risk_score(findings)
     risk_level = risk_level_from_score(risk_score)
+    # Сирий XML — найбільша частина результату, тож у базі лежить стиснутим.
+    packed, raw_size, raw_sha = pack_raw_xml(xml_text)
 
     async with SessionLocal() as session:
         scan = await session.get(Scan, scan_id)
@@ -172,7 +175,8 @@ async def _run_scan(
             .where(Scan.id == scan_id)
             .values(
                 status=SCAN_DONE,
-                raw_xml=xml_text,
+                raw_xml_gz=packed[0],
+                raw_xml=None,
                 result=parsed,
                 risk_score=risk_score,
                 risk_level=risk_level,
@@ -227,6 +231,8 @@ async def _run_scan(
     scan_services_total.labels(scan_type=scan_type).inc(len(services))
     span.set_attribute("scan.risk_score", risk_score)
     span.set_attribute("scan.risk_level", risk_level)
+    span.set_attribute("scan.raw_xml_bytes", raw_size)
+    span.set_attribute("scan.raw_xml_sha256", raw_sha)
     span.set_attribute("scan.outcome", "done")
     span.end()
 

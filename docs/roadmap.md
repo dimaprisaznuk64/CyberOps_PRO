@@ -21,6 +21,7 @@
 | v1.2 | ✅ | App Security: rate limiting, security headers, TLS, CI-сканування, 18 CVE | (поточний) |
 | v1.3 | ✅ | Jaeger: OTLP-трейси для core/auth/worker, скрейп, Grafana-датасорс | `3dd1870` |
 | v1.4 | ✅ | Завислі скан: 503 при недоступному брокері + celery beat-збирач | (поточний) |
+| v1.5 | ✅ | Архів сирого Nmap-XML: gzip у БД, /raw + /raw.xml, «deep»-парсер, панель у UI | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -83,6 +84,32 @@
 
 ## Ідеї / дрібниці (не обовʼязково)
 
+- **Архів сирого Nmap-XML** — ✅ закрито у v1.5:
+  - `services/scanner/nmap_runner.py` тепер не викидає «deep»-шари: версія й
+    аргументи nmap, `scaninfo` (`numservices`, не `services`), усі hostname'и,
+    OS-відпечатки з точністю, NSE-вивід (хостів і портів, обрізаний до 4000
+    символів + 50 елементів), `uptime`/`distance`, `runstats`. Старі ключі
+    (`command`, `hosts[].hostname`) збережено — з ними працюють analysis і тести;
+  - база: `raw_xml` (plain Text) замінено на `raw_xml_gz` (LargeBinary, gzip,
+    `mtime=0` для детермінованих байтів) — міграція `0007_scan_raw_archive`.
+    Стара колонка лишається: читання з неї підтримано для існуючих сканів,
+    нових записів у ній немає;
+  - `app/services/raw_nmap.py`: pack/unpack + метадані. Розмір і SHA-256
+    рахуються з реальних байт, а не з окремої колонки — дубльоване значення
+    рано чи пізно розійшлося б із вмістом доказу;
+  - API: `GET /scans/{id}/raw` (метадані + deep-розбір, `?include_xml=false`,
+    `truncated` якщо XML більший за `SCAN_RAW_XML_MAX_CHARS`) і
+    `GET /scans/{id}/raw.xml` (download). `raw_xml` прибрано зі
+    `ScanResultOut` — інакше кожне відкриття сторінки тягне сотні кілобайт;
+    ендпоинти без архіву роблять `defer(raw_xml, raw_xml_gz)`;
+  - битий gzip -> 500 на архіві, але сам скан лишається доступним;
+  - UI: `components/ScanRawArchive.tsx` — метадані, картки хостів з OS/NSE,
+    «Завантажити .xml» (через blob, бо `<a href>` не несе Authorization) і
+    «Показати сирий XML» за кліком; `.codeblock` у globals.css;
+  - 11 тестів (`tests/test_scan_raw_archive.py`) + 4 на парсер, всього 163.
+- **Віджет ризику для asset** — сумативний ризик по усіх сканів. Не почато.
+- **`docker compose` для frontend** — підтримати `NEXT_PUBLIC_API_URL` як
+  build-arg (вже є) і задокументувати remote-розгортання (terraform + CORS).
 - **Завислі скан** — ✅ закрито у v1.4:
   - корінь проблеми: `create_scan` комітив рядок у БД і лише потім робив
     `enqueue()`; при недоступному брокері API падав у 500, а рядок лишався
@@ -113,9 +140,6 @@
     а бекенд стартує без нього (warning замість падіння на imports);
   - `backend/Dockerfile` більше не копіює `frontend/` — образ менший;
   - 2 тести: сторінка віддається, решта шляхів каталогу — 404.
-- Архів deep Nmap-результатів (raw_xml) з візуалізацією у `scans/[id]`.
-- Додати віджет ризику для asset (сумативний з усіх сканів).
-- `docker compose` для frontend: підтримати `NEXT_PUBLIC_API_URL` як build-arg (вже є) і задокументувати remote-розгортання (terraform + CORS).
 
 ## Корисні команди для наступних сесій
 
@@ -126,7 +150,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (148)
+cd backend && python -m pytest tests -q # тести (163)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE
