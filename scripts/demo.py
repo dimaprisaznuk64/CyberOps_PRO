@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -42,35 +43,59 @@ def _request(base: str, method: str, path: str, token: str | None = None, data=N
         raise DemoError(f"HTTP {exc.code} {method} {path}: {detail[:300]}") from exc
 
 
-def run(base: str, username: str, password: str, host: str, wait: int) -> None:
-    print(f"[1/7] health -> {base}/health")
+def run(
+    base: str,
+    username: str,
+    password: str,
+    host: str,
+    wait: int,
+    admin_username: str,
+    admin_password: str,
+) -> None:
+    print(f"[1/8] health -> {base}/health")
     health = _request(base, "GET", "/health")
     print(f"      {health}")
 
-    print(f"[2/7] register ({username}, role=analyst)")
+    print(f"[2/8] register ({username})")
     try:
         _request(base, "POST", "/api/v1/auth/register", data={
-            "username": username, "password": password, "role": "analyst",
+            "username": username, "password": password,
         })
-        print("      registered")
+        print("      registered (role=user — публічна реєстрація не приймає роль)")
     except DemoError as exc:
         print(f"      register: {exc} (login instead)")
 
-    print("[3/7] login")
+    # Роль analyst більше не можна попросити в реєстрації, тож піднімати її
+    # доводиться через адміністратора. Це не декоративний крок: він проходить
+    # той самий шлях, який єдиний доступний у системі.
+    print(f"[3/8] promote to analyst via {admin_username}")
+    admin_token = _request(base, "POST", "/api/v1/auth/login", data={
+        "username": admin_username, "password": admin_password,
+    })["access_token"]
+    users = _request(base, "GET", "/api/v1/users", token=admin_token)
+    target = next((u for u in users if u["username"] == username), None)
+    if target is None:
+        raise DemoError(f"користувача {username} немає серед /users")
+    if target["role"] != "analyst":
+        _request(base, "PATCH", f"/api/v1/users/{target['id']}/role", token=admin_token,
+                 data={"role": "analyst"})
+    print(f"      {username} -> analyst")
+
+    print("[4/8] login")
     tokens = _request(base, "POST", "/api/v1/auth/login", data={
         "username": username, "password": password,
     })
     token = tokens["access_token"]
     print("      access_token ok")
 
-    print(f"[4/7] create asset host={host}")
+    print(f"[5/8] create asset host={host}")
     asset = _request(base, "POST", "/api/v1/assets", token=token, data={
         "name": f"demo-{host}", "host": host, "kind": "hostname", "description": "auto demo target",
     })
     asset_id = asset["id"]
     print(f"      asset #{asset_id}")
 
-    print("[5/7] start scan")
+    print("[6/8] start scan")
     scan = _request(base, "POST", "/api/v1/scans", token=token, data={
         "asset_id": asset_id, "scan_type": "tcp",
     })
@@ -85,7 +110,7 @@ def run(base: str, username: str, password: str, host: str, wait: int) -> None:
         if state["status"] in ("done", "failed", "cancelled"):
             break
 
-    print("[6/7] findings + AI explanation")
+    print("[7/8] findings + AI explanation")
     findings = _request(base, "GET", "/api/v1/findings", token=token)
     if findings:
         f0 = findings[0]
@@ -98,7 +123,7 @@ def run(base: str, username: str, password: str, host: str, wait: int) -> None:
     else:
         print("      no findings yet (worker/scanner didn't produce results)")
 
-    print("[7/7] report + dashboard")
+    print("[8/8] report + dashboard")
     report = _request(base, "POST", "/api/v1/reports", token=token, data={
         "title": "Demo scan report", "report_type": "scan", "scan_id": scan_id,
     })
@@ -120,9 +145,14 @@ def main() -> None:
     parser.add_argument("--host", default="vulnerable-api",
                         help="scan target; with security-lab up use vulnerable-api/vulnerable-web/test-db")
     parser.add_argument("--wait", type=int, default=90, help="max wait seconds for scan")
+    parser.add_argument("--admin-username", default=os.environ.get("ADMIN_USERNAME", "admin"),
+                        help="admin, created at auth startup from ADMIN_USERNAME/ADMIN_PASSWORD")
+    parser.add_argument("--admin-password", default=os.environ.get("ADMIN_PASSWORD", "admin"),
+                        help="admin password (set ADMIN_PASSWORD env to override)")
     args = parser.parse_args()
     try:
-        run(args.base, args.username, args.password, args.host, args.wait)
+        run(args.base, args.username, args.password, args.host, args.wait,
+            args.admin_username, args.admin_password)
     except DemoError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

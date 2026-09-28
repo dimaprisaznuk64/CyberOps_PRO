@@ -51,9 +51,46 @@ async def test_admin_delete_user(client):
     assert resp.status_code == 204
 
 
-async def test_invalid_role_rejected(client):
-    resp = await client.post(
+async def test_register_ignores_any_role(client):
+    """Публічна реєстрація не приймає роль узагалі — жодна.
+
+    Раніше `validate_role` перевіряв лише «роль є у списку», тому запит з
+    `role: "admin"` проходив і створював адміністратора. Тепер у схемі
+    немає поля role, а маршрут бере ROLE_USER з константи, тож значення з
+    тіла запиту немає як дістатися до колонки.
+
+    Перевіряємо на всіх ролях і навіть на смітті: відповідь однакова.
+    """
+    for username, payload_role in (
+        ("plaine", None),
+        ("wannabe_admin", "admin"),
+        ("wannabe_analyst", "analyst"),
+        ("nonsense", "superuser"),
+    ):
+        body = {"username": username, "password": "password123"}
+        if payload_role is not None:
+            body["role"] = payload_role
+        resp = await client.post("/api/v1/auth/register", json=body)
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["role"] == "user", f"{username} отримав {resp.json()['role']}"
+
+
+async def test_register_cannot_grant_admin_endpoints(client):
+    """Ескалація не проходить не тільки в полі role, а й на рівні доступу.
+
+    Навіть якби роль somehow опинилась admin, require_admin має відкидати
+    запит — це друга половина захисту, про яку тести мовчали.
+    """
+    await client.post(
         "/api/v1/auth/register",
-        json={"username": "hacker", "password": "password123", "role": "superuser"},
+        json={"username": "esc2", "password": "password123", "role": "admin"},
     )
-    assert resp.status_code == 422
+    token = await login(client, "esc2", "password123")
+    headers = {"Authorization": f"Bearer {token}"}
+    assert (await client.get("/api/v1/users", headers=headers)).status_code == 403
+    # і не може підняти собі роль через адмінський ендпойнт
+    me = (await client.get("/api/v1/users/me", headers=headers)).json()
+    resp = await client.patch(
+        f"/api/v1/users/{me['id']}/role", json={"role": "admin"}, headers=headers
+    )
+    assert resp.status_code == 403

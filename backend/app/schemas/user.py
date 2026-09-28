@@ -6,10 +6,17 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
+    """Публічна реєстрація.
+
+    `role` тут немає свідомо. Раніше поле було тут і register довіряв йому,
+    тому будь-хто міг надіслати {"role": "admin"} і отримати адміна без
+    жодного доступу. Роль призначає або сівач при старті
+    (`services/seed.py`), або адмін через `PATCH /api/v1/users/{id}/role`.
+    """
+
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8, max_length=128)
     email: EmailStr | None = None
-    role: str = Field(default="user")
 
 
 class UserLogin(BaseModel):

@@ -14,7 +14,6 @@ from app.services.auth import (
     authenticate,
     create_token,
     hash_password,
-    validate_role,
     verify_password,
 )
 
@@ -23,8 +22,11 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(payload: UserCreate, session: AsyncSession = Depends(get_session)):
-    if not validate_role(payload.role):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Невалідна роль")
+    # Роль не береться з тіла запиту в принципі. Клієнт може надсилати
+    # {"role": "admin"}, але схема не має такого поля — Pydantic зневажає
+    # невідомі поля, а роль тут береться з ROLE_USER константи. Саме тому
+    # ескалація неможлива: немає жодного шляху, яким значення з тіла
+    # запиту дісталося б до колонки role.
     exists = await session.scalar(select(User.id).where(User.username == payload.username))
     if exists:
         raise HTTPException(status.HTTP_409_CONFLICT, "Користувач вже існує")
@@ -32,7 +34,7 @@ async def register(payload: UserCreate, session: AsyncSession = Depends(get_sess
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
-        role=payload.role or ROLE_USER,
+        role=ROLE_USER,
     )
     session.add(user)
     await session.commit()

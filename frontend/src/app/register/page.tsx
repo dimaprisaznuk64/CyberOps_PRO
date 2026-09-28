@@ -11,7 +11,6 @@ export default function RegisterPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState("user");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -24,7 +23,7 @@ export default function RegisterPage() {
     setBusy(true);
     setError(null);
     try {
-      await register(username, password, email || null, role);
+      await register(username, password, email || null);
       router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Помилка реєстрації");
@@ -48,12 +47,6 @@ export default function RegisterPage() {
         />
         <label>Email (необовʼязково)</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} />
-        <label>Роль</label>
-        <select value={role} onChange={(e) => setRole(e.target.value)}>
-          <option value="user">user</option>
-          <option value="analyst">analyst</option>
-          <option value="admin">admin</option>
-        </select>
         <div style={{ marginTop: 14 }}>
           <button
             type="submit"
@@ -64,6 +57,10 @@ export default function RegisterPage() {
         </div>
       </form>
       <p className="small muted" style={{ marginTop: 14 }}>
+        Новий акаунт отримує роль <code>user</code>. Підняття до <code>analyst</code> або{" "}
+        <code>admin</code> робить адміністратор.
+      </p>
+      <p className="small muted" style={{ marginTop: 8 }}>
         Вже є акаунт? <a href="/login">Увійти</a>
       </p>
     </div>

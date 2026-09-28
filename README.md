@@ -20,11 +20,12 @@ web-dashboard.
 | **0.7** | ✅ | Microservices, API Gateway |
 | **0.8** | ✅ | Kubernetes (kustomize manifests), CI/CD (GHCR, kind E2E) |
 | **0.9** | ✅ | Terraform/Cloud (AWS EC2 + docker compose deploy, SG, EIP) |
-| **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
-| **1.1** | 🔄 | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
-| **1.2–1.5** | 🔄 | App Security (18 CVE) ✅, Jaeger ✅, reaper завислих сканів ✅, сирий Nmap-архів ✅ |
-| **1.6** | 🔄 | Агрегований ризик активу: поточний + історичний максимум, бейджі в UI ✅ |
-| **1.7** | 🔄 | Віддалене розгортання: порти лише gateway/UI, обов'язкові секрети в prod, SSH-тунель до метрик ✅ |
+| **1.0** | ✅ | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
+| **1.1** | ✅ | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
+| **1.2–1.5** | ✅ | App Security (18 CVE) ✅, Jaeger ✅, reaper завислих сканів ✅, сирий Nmap-архів ✅ |
+| **1.6** | ✅ | Агрегований ризик активу: поточний + історичний максимум, бейджі в UI ✅ |
+| **1.7** | ✅ | Віддалене розгортання: порти лише gateway/UI, обов'язкові секрети в prod, SSH-тунель до метрик ✅ |
+| **1.8** | ✅ | Закрито ескалацію через register + реальний сівач адміна ✅ |
 
 ## Ролі (RBAC)
 
@@ -33,6 +34,11 @@ web-dashboard.
 | `user` | перегляд власних asset і сканувань |
 | `analyst` | запуск сканувань і перегляд findings |
 | `admin` | керування користувачами та системою |
+
+> Публічна реєстрація завжди створює роль `user` — поле `role` не приймається
+> від клієнта. Підняття до `analyst`/`admin` робить адміністратор через
+> `PATCH /api/v1/users/{id}/role`. Перший адмін створюється при старті auth з
+> `ADMIN_USERNAME`/`ADMIN_PASSWORD` (`.env`).
 
 ## Структура
 
@@ -434,7 +440,7 @@ frontend/
 
 | Метод | Шлях | Доступ |
 |---|---|---|
-| POST | `/api/v1/auth/register` | public |
+| POST | `/api/v1/auth/register` | public (завжди створює роль `user`) |
 | POST | `/api/v1/auth/login` | public |
 | POST | `/api/v1/auth/refresh` | public |
 | POST | `/api/v1/auth/change-password` | authorized |

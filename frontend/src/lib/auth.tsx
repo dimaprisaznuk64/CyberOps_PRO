@@ -21,7 +21,7 @@ interface AuthState {
   session: Session | null;
   ready: boolean;
   login: (username: string, password: string) => Promise<Session>;
-  register: (username: string, password: string, email: string | null, role: string) => Promise<void>;
+  register: (username: string, password: string, email: string | null) => Promise<void>;
   logout: () => void;
 }
 
@@ -82,8 +82,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const register = useCallback(
-    async (username: string, password: string, email: string | null, role: string) => {
-      await post("/api/v1/auth/register", { username, password, email, role });
+    async (username: string, password: string, email: string | null) => {
+      // role свідомо не надсилається: бекенд ігнорує його, а публічна
+      // реєстрація завжди створює користувача з роллю user.
+      await post("/api/v1/auth/register", { username, password, email });
       await login(username, password);
     },
     [login]

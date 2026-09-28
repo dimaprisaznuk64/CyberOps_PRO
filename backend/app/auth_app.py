@@ -11,6 +11,7 @@ from app.database import SessionLocal
 from app.routers import audit, auth, health, metrics, users
 from app.services.audit import audit_middleware
 from app.services.logging_config import configure_logging, get_logger
+from app.services.seed import ensure_admin_user
 from app.services.tracing import setup_tracing
 
 configure_logging(settings.log_json)
@@ -22,6 +23,15 @@ logger = get_logger("auth_service")
 async def lifespan(app: FastAPI):
     configure_logging(settings.log_json)
     setup_tracing(app)
+    # Створює початкового адміністратора. Раніше його не існувало взагалі, а
+    # публічна реєстрація не дозволяє підняти роль, тож легітимного входу
+    # в адмінку не було — лише ескалація через register.
+    try:
+        await ensure_admin_user(SessionLocal)
+    except Exception:
+        # Не роняємо сервіс: на свіжій БД міграції ще не накачено, тоді seed
+        # упаде на відсутній таблиці. Наступний рестарт добере решту.
+        logger.exception("admin_seed_failed")
     logger.info("auth_service_started", extra={"version": app.version})
     yield
 
