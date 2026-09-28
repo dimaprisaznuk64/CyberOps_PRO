@@ -157,7 +157,12 @@ services:
       # v1.3: gateway теж експортує спани, щоб перший хоп (клієнт -> gateway
       # -> core) був видимий, а не починався десь у core.
       TRACING_ENABLED: ${TRACING_ENABLED:-true}
-      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-http://jaeger:4318/v1/traces}
+      # Тільки INTERNAL-варіант, як у core/auth/worker. Звичайний OTLP_ENDPOINT
+      # приходить з host-.env як localhost:4318, а всередині контейнера localhost —
+      # це сам контейнер, тож спани не експортувалися взагалі (в логах був
+      # Connection refused на localhost:4318). Цей баг пропустили у v1.3, коли
+      # решта сервісів перейшла на OTLP_ENDPOINT_INTERNAL.
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT_INTERNAL:-http://jaeger:4318/v1/traces}
       TRACING_SERVICE_NAME: gateway
     volumes:
       - ${TLS_CERTS_DIR:-./certs}:/certs:ro
