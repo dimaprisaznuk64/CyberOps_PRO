@@ -35,3 +35,12 @@ class AssetOut(BaseModel):
     description: str | None = None
     owner_id: int
     created_at: datetime
+
+    # Агрегований ризик рахується з scans активу (app/services/asset_risk.py),
+    # а не зберігається в активі: null = ще не було завершених сканувань.
+    risk_score: int | None = None
+    risk_level: str | None = None
+    max_risk_score: int | None = None
+    max_risk_level: str | None = None
+    scans_count: int = 0
+    last_scan_at: datetime | None = None

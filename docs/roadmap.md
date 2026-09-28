@@ -22,6 +22,7 @@
 | v1.3 | ✅ | Jaeger: OTLP-трейси для core/auth/worker, скрейп, Grafana-датасорс | `3dd1870` |
 | v1.4 | ✅ | Завислі скан: 503 при недоступному брокері + celery beat-збирач | (поточний) |
 | v1.5 | ✅ | Архів сирого Nmap-XML: gzip у БД, /raw + /raw.xml, «deep»-парсер, панель у UI | (поточний) |
+| v1.6 | ✅ | Агрегований ризик активу: поточний + історичний максимум, сортування в UI | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -107,7 +108,26 @@
     «Завантажити .xml» (через blob, бо `<a href>` не несе Authorization) і
     «Показати сирий XML» за кліком; `.codeblock` у globals.css;
   - 11 тестів (`tests/test_scan_raw_archive.py`) + 4 на парсер, всього 163.
-- **Віджет ризику для asset** — сумативний ризик по усіх сканів. Не почато.
+- **Віджет ризику для asset** — ✅ закрито у v1.6:
+  - `app/services/asset_risk.py`: агрегат рахується з `scans` (окремої колонки
+    в `assets` немає — воно б розпадалося з кожним сканом). Два запити на весь
+    список активів, без N+1;
+  - показуємо і поточний стан (останнє `done` сканування), і `max_risk_*` за
+    історію: стара вразливість не повинна зникати з виду, але й застарілі
+    знахідки не мають видаватися за поточні;
+  - `row_number() over (partition by asset_id order by finished_at desc, id desc)`:
+    id — tiebreaker, бо повторний скан нерідко має той самий `finished_at`;
+  - рівень рахується тим самим `risk_level_from_score`, що й для сканування;
+  - `scans_count` рахує всі спроби ( і `failed`), `last_scan_at` — `max(finished_at)`,
+    тож видно й невдалі сканування;
+  - `AssetOut` доповнений полями; `POST`/`PATCH` теж їх повертають, інакше
+    бейдж зникав би до перезавантаження;
+  - рахуються всі сканування активу, а не лише власні: чужий актив не можна
+    сканувати, а бачити його аналітик може так само, як власник;
+  - UI: колонки «Ризик»/«Історія»/«Скани», сортування за ризиком/назвою/ID,
+    непросканований актив — сірий «не скановано» (RiskPill для `null` показував
+    би LOW, тобто вигаданий безпечний стан);
+  - 7 тестів (`tests/test_assets.py`), всього 170.
 - **`docker compose` для frontend** — підтримати `NEXT_PUBLIC_API_URL` як
   build-arg (вже є) і задокументувати remote-розгортання (terraform + CORS).
 - **Завислі скан** — ✅ закрито у v1.4:
@@ -150,7 +170,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (163)
+cd backend && python -m pytest tests -q # тести (170)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

@@ -9,6 +9,7 @@ from app.dependencies import get_current_user, require_analyst
 from app.models.asset import Asset
 from app.models.user import User
 from app.schemas.asset import AssetCreate, AssetOut, AssetUpdate
+from app.services.asset_risk import EMPTY_RISK, AssetRisk, risk_by_asset
 from app.services.netguard import HostNotAllowedError, assert_host_allowed
 
 router = APIRouter(prefix="/api/v1/assets", tags=["assets"])
@@ -19,6 +20,15 @@ def _visible_query(user: User):
     if user.role != "admin":
         query = query.where(Asset.owner_id == user.id)
     return query
+
+
+def _with_risk(asset: Asset, risk: dict[int, AssetRisk]) -> AssetOut:
+    return AssetOut.model_validate(asset).model_copy(update=risk.get(asset.id, EMPTY_RISK))
+
+
+async def _out(session: AsyncSession, asset: Asset) -> AssetOut:
+    """Актив + агрегований ризик (див. app/services/asset_risk.py)."""
+    return _with_risk(asset, await risk_by_asset(session, [asset.id]))
 
 
 def _host_check(kind: str, host: str) -> None:
@@ -57,7 +67,7 @@ async def create_asset(
     session.add(asset)
     await session.commit()
     await session.refresh(asset)
-    return asset
+    return await _out(session, asset)
 
 
 @router.get("", response_model=list[AssetOut])
@@ -65,8 +75,9 @@ async def list_assets(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.scalars(_visible_query(user))
-    return list(result.all())
+    assets = list((await session.scalars(_visible_query(user))).all())
+    risk = await risk_by_asset(session, [asset.id for asset in assets])
+    return [_with_risk(asset, risk) for asset in assets]
 
 
 @router.get("/{asset_id}", response_model=AssetOut)
@@ -75,7 +86,7 @@ async def get_asset(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    return await _get_owned_asset(session, asset_id, user)
+    return await _out(session, await _get_owned_asset(session, asset_id, user))
 
 
 @router.patch("/{asset_id}", response_model=AssetOut)
@@ -93,7 +104,7 @@ async def update_asset(
         setattr(asset, key, value)
     await session.commit()
     await session.refresh(asset)
-    return asset
+    return await _out(session, asset)
 
 
 @router.delete("/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)

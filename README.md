@@ -23,6 +23,7 @@ web-dashboard.
 | **1.0** | 🔄 | Security Lab ✅, AI Assistant ✅, документація ✅, demo ✅, Frontend (Next.js) ✅ |
 | **1.1** | 🔄 | Канали сповіщень: Email (SMTP) ✅, Telegram ✅, налаштування в UI ✅ |
 | **1.2–1.5** | 🔄 | App Security (18 CVE) ✅, Jaeger ✅, reaper завислих сканів ✅, сирий Nmap-архів ✅ |
+| **1.6** | 🔄 | Агрегований ризик активу: поточний + історичний максимум, бейджі в UI ✅ |
 
 ## Ролі (RBAC)
 
@@ -362,7 +363,7 @@ frontend/
 | PATCH | `/api/v1/users/{id}` | admin |
 | PATCH | `/api/v1/users/{id}/role` | admin |
 | DELETE | `/api/v1/users/{id}` | admin |
-| POST | `/api/v1/assets` | authorized (kind: ip/domain/hostname/docker) |
+| POST | `/api/v1/assets` | authorized (kind: ip/domain/hostname/docker; + агрегований ризик) |
 | GET | `/api/v1/assets` | authorized (власні / admin — всі) |
 | GET | `/api/v1/assets/{id}` | owner / admin |
 | PATCH | `/api/v1/assets/{id}` | owner / admin |
@@ -457,6 +458,29 @@ Swagger: `http://localhost:8000/docs`
 - **Risk Score** (0–100) сумує ваги знахідок; рівень:
   `<20 LOW`, `<45 MEDIUM`, `<75 HIGH`, інакше `CRITICAL`.
   Зберігається у скануванні та відданий через `/scans/{id}/risk`.
+
+### Ризик активу (v1.6)
+
+У відповідях `/api/v1/assets` (і `{id}`, `POST`, `PATCH`) з'явилися поля
+агрегованого ризику — рахуються з `scans` активу, окремої колонки в таблиці
+активів немає:
+
+| Поле | Що означає |
+|---|---|
+| `risk_score` / `risk_level` | **поточний** стан: останнє завершене сканування |
+| `max_risk_score` / `max_risk_level` | найгірший ризик за всю історію (щоб не забути, коли актив був уразливий) |
+| `scans_count` | кількість усіх спроб, включно з `failed` |
+| `last_scan_at` | час останньої спроби (`finished_at`), тож видно й невдалі |
+
+- `null` у `risk_score` = ще не було жодного завершеного сканування (UI показує
+  «не скановано»); рівні рахуються тим самим `risk_level_from_score`, що й для
+  сканування, тож бейджі не плутаються між собою.
+- Сканування враховуються **всі**, а не лише власні: чужий актив недоступний
+  для сканування, а аналітик з іншої команди бачить його так само, як власник.
+- `POST`/`PATCH` теж повертають ці поля — інакше бейдж зникав би до
+  перезавантаження сторінки.
+- UI: колонки «Ризик», «Історія» (макс + останній скан), «Скани» та
+  сортування за ризиком; непросканований актив іде в кінець.
 
 ### Notifications, Reports, Audit Logs, Events (v0.4)
 

@@ -25,6 +25,14 @@ export interface Asset {
   description?: string | null;
   owner_id: number;
   created_at: string;
+  /** Ризик з останнього завершеного сканування; null = ще не сканували. */
+  risk_score?: number | null;
+  risk_level?: string | null;
+  /** Найгірший ризик за всю історію сканувань. */
+  max_risk_score?: number | null;
+  max_risk_level?: string | null;
+  scans_count?: number;
+  last_scan_at?: string | null;
 }
 
 export type ScanType = "ping" | "tcp" | "quick";

@@ -3,11 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { RequireAuth } from "@/components/RequireAuth";
+import { RiskPill } from "@/components/Pills";
 import { del, get, patch, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import type { Asset, AssetKind } from "@/lib/types";
 
 const EMPTY = { name: "", host: "", kind: "ip" as AssetKind, docker_container: "", description: "" };
+
+type SortBy = "risk" | "name" | "id";
+
+/** Ризик за кожним активом: null (не сканували) йде в кінець, решта — за спаданням. */
+function byRisk(a: Asset, b: Asset): number {
+  return (b.risk_score ?? -1) - (a.risk_score ?? -1);
+}
+
+function sortAssets(assets: Asset[], sortBy: SortBy): Asset[] {
+  const sorted = [...assets];
+  if (sortBy === "risk") sorted.sort(byRisk);
+  else if (sortBy === "name") sorted.sort((a, b) => a.name.localeCompare(b.name));
+  else sorted.sort((a, b) => a.id - b.id);
+  return sorted;
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "short" });
+}
 
 export default function AssetsPage() {
   const { session } = useAuth();
@@ -16,6 +37,7 @@ export default function AssetsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sortBy, setSortBy] = useState<SortBy>("risk");
   const canManage = session?.role === "admin" || session?.role === "analyst";
 
   const load = useCallback(async () => {
@@ -152,6 +174,16 @@ export default function AssetsPage() {
 
       <div className="panel">
         <h3>Список ({assets.length})</h3>
+        <div className="form-row">
+          <div style={{ flex: "0 0 220px" }}>
+            <label>Сортування</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
+              <option value="risk">за ризиком</option>
+              <option value="name">за назвою</option>
+              <option value="id">за ID</option>
+            </select>
+          </div>
+        </div>
         {assets.length === 0 && <div className="empty">Немає активів</div>}
         <table>
           <thead>
@@ -161,11 +193,14 @@ export default function AssetsPage() {
               <th>Host</th>
               <th>Тип</th>
               <th>Docker</th>
+              <th>Ризик</th>
+              <th>Історія</th>
+              <th>Скани</th>
               <th>Дії</th>
             </tr>
           </thead>
           <tbody>
-            {assets.map((a) => (
+            {sortAssets(assets, sortBy).map((a) => (
               <tr key={a.id}>
                 <td>{a.id}</td>
                 <td>{a.name}</td>
@@ -174,6 +209,23 @@ export default function AssetsPage() {
                   <span className="pill neutral">{a.kind}</span>
                 </td>
                 <td className="muted small">{a.docker_container ?? "—"}</td>
+                <td>
+                  {a.risk_score === null || a.risk_score === undefined ? (
+                    <span className="pill neutral">не скановано</span>
+                  ) : (
+                    <>
+                      <RiskPill risk={a.risk_level} />{" "}
+                      <span className="small muted">{a.risk_score}/100</span>
+                    </>
+                  )}
+                </td>
+                <td className="small muted">
+                  {a.max_risk_score !== null && a.max_risk_score !== undefined && (
+                    <div>макс {a.max_risk_score} ({a.max_risk_level})</div>
+                  )}
+                  <div>останній: {formatDate(a.last_scan_at)}</div>
+                </td>
+                <td className="small">{a.scans_count ?? 0}</td>
                 <td>
                   {canManage && (
                     <button className="sm ghost" onClick={() => startEdit(a)}>
