@@ -56,6 +56,8 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    env:
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -90,13 +92,14 @@ jobs:
             --ignore-unfixed --exit-code 1 .
 
       - name: Semgrep (SAST у бекенді)
-        # запускається лише якщо задані креди бот-акаунта Semgrep
-        if: ${{ secrets.SEMGREP_APP_TOKEN != '' }}
+        # запускається лише якщо задані креди бот-акаунта Semgrep.
+        # Контекст secrets недоступний у кроковому if (лише в job-level if та
+        # env), тому secret спершу потрапляє в env, а вже потім перевіряється.
+        if: ${{ env.SEMGREP_APP_TOKEN != '' }}
         uses: semgrep/semgrep-action@v1
         with:
           config: p/ci
         env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
           SEMGREP_RULES: p/ci
 
   frontend:

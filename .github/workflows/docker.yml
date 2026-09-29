@@ -24,8 +24,12 @@ jobs:
           else
             TAG="${REF_NAME#v}"
           fi
+          # GHCR вимагає lowercase в імені образу, а в github.repository
+          # регістр зберігається (CyberOps_PRO). У виразах GitHub немає
+          # функції lower() — лише bash.
+          REGISTRY="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "registry=ghcr.io/${{ lower(github.repository) }}" >> "$GITHUB_OUTPUT"
+          echo "registry=$REGISTRY" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
