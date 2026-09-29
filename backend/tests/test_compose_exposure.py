@@ -102,17 +102,81 @@ def test_prod_override_requires_secrets_and_public_api_url() -> None:
     services = _load(PROD_OVERRIDE)["services"]
     core = services["core"]["environment"]
     gateway = services["gateway"]["environment"]
-    frontend_args = services["frontend"]["build"]["args"]
+    frontend_env = services["frontend"]["environment"]
 
     # ${VAR:?...} — compose зупиняється на старті, а не піднімає стек із
     # дефолтами dev-secret-change-me / admin/admin.
     assert ":?" in core["JWT_SECRET"]
     assert ":?" in core["ADMIN_PASSWORD"]
     assert ":?" in gateway["CORS_ORIGINS"]
-    assert ":?" in frontend_args["NEXT_PUBLIC_API_URL"]
+    assert ":?" in frontend_env["API_PUBLIC_URL"]
     assert services["postgres"]["environment"]["POSTGRES_PASSWORD"].startswith(
         "${POSTGRES_PASSWORD:?"
     )
+
+
+def test_frontend_api_url_is_runtime_only_in_compose() -> None:
+    """Адреса API має задаватися в рантаймі, а не вписуватися в образ.
+
+    Регресія: NEXT_PUBLIC_* підставляється в бандл під час `next build`, тож
+    образ, зібраний до появи EIP, назавжди ходив у адресу попереднього стенду.
+    Симптом — порожній UI при повністю живому бекенді, тобто виглядає як
+    «зламаний бекенд». Runtime-варіант (/runtime-config.js) переживає
+    перенесення стенду без перебудови образу.
+    """
+    for label, path in (("compose", COMPOSE), ("prod", PROD_OVERRIDE)):
+        service = _load(path)["services"]["frontend"]
+        args = (service.get("build") or {}).get("args") or {}
+        assert "NEXT_PUBLIC_API_URL" not in args, (
+            f"{label}: адреса API знову передається як build-arg і буде вписана "
+            "в бандл назавжди; їй місце лише в environment"
+        )
+    assert "API_PUBLIC_URL" in _load(COMPOSE)["services"]["frontend"]["environment"]
+
+
+def test_frontend_dockerfile_has_no_baked_api_url_default() -> None:
+    """`ENV NEXT_PUBLIC_API_URL=${ARG:-...}` зважує дефолт у бандл.
+
+    Саме це і робило образ, зібраний у CI без .env, «зламаним» на kind:
+    адреса з localhost потрапляла в JavaScript назавжди. Дефолту бути не
+    має — вистачить порожнього значення, яке код трактує як «не задано».
+    """
+    dockerfile = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    match = re.search(r"^ENV NEXT_PUBLIC_API_URL=(.*)$", dockerfile, re.MULTILINE)
+    assert match, "NEXT_PUBLIC_API_URL більше не задається у Dockerfile"
+    assert ":-" not in match.group(1), (
+        f"у Dockerfile знову з'явився дефолт адреси: {match.group(1)}"
+    )
+
+
+def test_k8s_cors_allows_the_frontend_origin() -> None:
+    """Origin фронтенду має бути в CORS_ORIGINS, інакше браузер блокує API.
+
+    Регресія: у k8s UI віддається на NodePort 30010, а CORS_ORIGINS містив
+    лише :3000 (compose). На kind-стенді кожен запит з UI блокувався.
+    Smoke-тест цього не бачить — curl не надсилає заголовок Origin, тож
+    перевірка можлива тільки зіставленням маніфестів.
+    """
+    secret = _load(ROOT / "infrastructure/kubernetes/base/secret.yaml")
+    cors = [o.strip() for o in secret["stringData"]["CORS_ORIGINS"].split(",") if o.strip()]
+    services = {
+        doc["metadata"]["name"]: doc
+        for path in sorted((ROOT / "infrastructure/kubernetes/base").glob("*.yaml"))
+        for doc in yaml.safe_load_all(path.read_text(encoding="utf-8"))
+        if doc and doc.get("kind") == "Service"
+    }
+    node_ports = [
+        port["nodePort"]
+        for service in services.values()
+        if service["metadata"]["name"] == "frontend"
+        for port in service.get("spec", {}).get("ports") or []
+        if port.get("nodePort")
+    ]
+    assert node_ports, "у frontend Service немає nodePort — звідки взяти origin?"
+    for port in node_ports:
+        assert f"http://localhost:{port}" in cors, (
+            f"origin фронтенду з k8s (:{port}) немає в CORS_ORIGINS={cors}"
+        )
 
 
 def test_prod_override_restarts_containers_and_bounds_logs() -> None:

@@ -45,14 +45,71 @@ jobs:
             kubectl -n cyberops rollout status deployment/$d --timeout=240s
           done
 
+      # Не просто «процеси піднялися». Старий крок робив один curl /health, тож
+      # E2E був зелений на стенді, де UI не міг ані увійти, ані отримати
+      # жодного запиту. Тут перевіряється поведінка, зокрема дві речі, які
+      # curl не бачить у принципі:
+      #   * runtime-конфіг — адреса API приходить у браузер, а не з бандлу;
+      #   * CORS — запит із заголовком Origin, тобо так, як його робить браузер.
       - name: Smoke test (via gateway)
         run: |
           kubectl -n cyberops port-forward svc/gateway 8000:8000 &
-          PID=$!
+          GW_PID=$!
+          kubectl -n cyberops port-forward svc/frontend 3000:3000 &
+          FE_PID=$!
+          trap 'kill $GW_PID $FE_PID 2>/dev/null || true' EXIT
           sleep 8
+
+          echo "--- gateway /health"
           curl -fsS http://localhost:8000/health
           echo
-          kill $PID 2>/dev/null || true
+
+          echo "--- frontend /runtime-config.js"
+          # Порівнюємо з ConfigMap, а не з константою: якщо змінна не доїде до
+          # контейнера, тест має впасти тут, а не на руках відвідувача.
+          API_URL=$(kubectl -n cyberops get configmap cyberops-config \
+            -o jsonpath='{.data.API_PUBLIC_URL}')
+          CONFIG=$(curl -fsS http://localhost:3000/runtime-config.js)
+          echo "$CONFIG"
+          grep -qF "\"$API_URL\"" <<<"$CONFIG" || {
+            echo "::error::runtime-конфіг не містить API_PUBLIC_URL=$API_URL"; exit 1; }
+
+          echo "--- admin credentials з Secret (не хардкод)"
+          secret_get() { kubectl -n cyberops get secret cyberops-secrets \
+            -o jsonpath="{.data.$1}" | base64 -d; }
+          USER=$(secret_get ADMIN_USERNAME)
+          PASS=$(secret_get ADMIN_PASSWORD)
+
+          echo "--- CORS: origin фронтенду має бути дозволений"
+          # Без цього кроку E2E зелений при заблокованому UI: curl не
+          # надсилає Origin, тож попередній тест не бачив неправильний
+          # CORS_ORIGINS (у k8s UI жив на :30010, а в CORS був лише :3000).
+          FRONTEND_ORIGIN=$(kubectl -n cyberops get svc frontend \
+            -o jsonpath='{.spec.ports[0].nodePort}')
+          ALLOW=$(curl -fsS -o /dev/null -D - -X OPTIONS \
+            http://localhost:8000/api/v1/auth/login \
+            -H "Origin: http://localhost:$FRONTEND_ORIGIN" \
+            -H "Access-Control-Request-Method: POST" \
+            | grep -i '^access-control-allow-origin:' | tr -d '\r' | awk '{print $2}')
+          echo "allow-origin: ${ALLOW:-<none>}"
+          [ "$ALLOW" = "http://localhost:$FRONTEND_ORIGIN" ] || {
+            echo "::error::CORS не дозволяє origin фронтенду :$FRONTEND_ORIGIN"; exit 1; }
+
+          echo "--- login + створення активу"
+          TOKEN=$(curl -fsS -X POST http://localhost:8000/api/v1/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" | jq -r .access_token)
+          [ -n "$TOKEN" ] && [ "$TOKEN" != null ] || { echo "::error::login не дав токена"; exit 1; }
+
+          curl -fsS -o /dev/null -w 'create asset: HTTP %{http_code}\n' \
+            -X POST http://localhost:8000/api/v1/assets \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            -d '{"name":"kind-e2e","host":"127.0.0.1"}'
+
+          FOUND=$(curl -fsS http://localhost:8000/api/v1/assets \
+            -H "Authorization: Bearer $TOKEN" | jq -r '[.[] | select(.name=="kind-e2e")] | length')
+          echo "знайдено активів kind-e2e: $FOUND"
+          [ "$FOUND" -ge 1 ] || { echo "::error::створений актив не читається назад"; exit 1; }
 
       - name: Pods
         if: always()

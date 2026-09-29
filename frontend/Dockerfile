@@ -3,8 +3,13 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# NEXT_PUBLIC_API_URL — лише для локальної розробки (npm run dev) і для
+# образів, зібраних із явним build-arg. Тут БЕЗ дефолту: `ENV X=${ARG:-...}`
+# підставляв би http://localhost:8000 в бандл, і кожен стенд, зібраний без
+# .env (CI, kind), мав би UI, який ходить у localhost браузера. Публічна
+# адреса приходить у рантаймі через /runtime-config.js (див. API_PUBLIC_URL).
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
 FROM node:20-alpine

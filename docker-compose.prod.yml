@@ -80,9 +80,12 @@ services:
 
   frontend:
     <<: *prod-defaults
-    build:
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL to the public gateway URL, e.g. http://1.2.3.4:8000}
+    # Build-arg навмисно прибрано (див. docker-compose.yml): адреса API
+    # приходить у рантаймі, тому образ не прив'язаний до адреси, під якою
+    # його зібрали. Значення з docker-compose.yml сюди не дістанеться —
+    # override перекриває environment цілком, — тому тут воно обов'язкове.
+    environment:
+      API_PUBLIC_URL: ${NEXT_PUBLIC_API_URL:?set NEXT_PUBLIC_API_URL to the public gateway URL, e.g. http://1.2.3.4:8000}
 
   jaeger:
     <<: *prod-defaults

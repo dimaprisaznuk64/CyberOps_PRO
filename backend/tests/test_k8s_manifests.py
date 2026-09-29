@@ -241,6 +241,33 @@ def test_app_env_defaults_do_not_collide_with_injected_service_env() -> None:
     assert clashes == {}, f"ім'я змінної з коду збігається з іменем Service: {clashes}"
 
 
+def test_declared_env_names_do_not_collide_with_injected_service_env() -> None:
+    """Те саме, але для змінних, які ми задаємо МИТНО — у ConfigMap, Secret
+    або в pod env.
+
+    Такі випадки не ламають застосунок (pod spec має пріоритет над змінними
+    Service), але роблять значенням неоднозначним: людина читає маніфест, бачить
+    `GATEWAY_PORT` у ConfigMap і не здогадується, що колись це було не те
+    значення. Тому забороняємо колізію навіть там, де вона безпечна.
+    """
+    injected = _injected_service_env_names()
+    declared: dict[str, str] = {}
+    configmap = _load(CONFIGMAP).get("data") or {}
+    secret = _load(SECRET).get("stringData") or {}
+    for key in (*configmap, *secret):
+        declared.setdefault(key, "configmap.yaml/secret.yaml")
+    for path in sorted(BASE.glob("*.yaml")):
+        for doc in _documents(path):
+            spec = doc.get("spec", {})
+            template = spec.get("template", spec)
+            for container in (template.get("spec") or {}).get("containers") or []:
+                for entry in container.get("env") or []:
+                    if "name" in entry:
+                        declared.setdefault(str(entry["name"]), f"{path.name}")
+    clashes = {name: declared[name] for name in declared if name in injected}
+    assert clashes == {}, f"оголошена змінна має таке саме ім'я, як у Service: {clashes}"
+
+
 def test_generated_configmap_keys_have_no_slashes() -> None:
     """Те саме для configMapGenerator у kustomization.yaml.
 

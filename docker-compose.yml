@@ -211,8 +211,14 @@ services:
     image: ${IMAGE_PREFIX:-cyberops}/cyberops-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    environment:
+      # Публічна адреса gateway для браузера. Саме цю змінну читає
+      # /runtime-config.js у контейнері. Build-arg тут навмисно НЕ передається:
+      # він вписував би адресу в бандл назавжди, і кожен стенд, зібраний без
+      # .env, отримував би UI, який ходить у localhost браузера. Рантайм
+      # дозволяє перекрити адресу без перебудови образу; у prod-оверлеї вона
+      # обов'язкова (:?), тут дефолт для локальної розробки.
+      API_PUBLIC_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:

@@ -18,6 +18,13 @@ data:
   SCAN_REAPER_INTERVAL_SECONDS: "60"
   # Ліміт сирого Nmap-XML у JSON-відповіді архіву (понад — лише .xml)
   SCAN_RAW_XML_MAX_CHARS: "400000"
+  # Публічна адреса gateway, яку бачить браузер. Читається контейнером
+  # frontend у рантаймі (/runtime-config.js), а НЕ вшивається в бандл під
+  # час next build: один і той самий образ має працювати на будь-якій
+  # адресі, інакше UI на стенді з EIP ходив би в localhost браузера.
+  # Значення нижче — для локального kind-стенда, де gateway видно на
+  # NodePort 30080. Прод-оверлей мусить перекрити його (див. CORS_ORIGINS).
+  API_PUBLIC_URL: http://localhost:30080
   # CORS_ORIGINS — у cyberops-secrets (див. коментар вище)
   AUTH_SERVICE_URL: http://auth:8002
   CORE_SERVICE_URL: http://core:8001

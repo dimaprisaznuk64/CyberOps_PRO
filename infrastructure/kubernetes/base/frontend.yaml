@@ -27,6 +27,15 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
+          # Один конкретний ключ, а не увесь envFrom: фронтенду не потрібні
+          # SCAN_ALLOW_PUBLIC, NMAP_TIMEOUT чи URL сервісів, і краще щоб це
+          # було видно в маніфесті, а не приїхало з конфігом «про всяк випадок».
+          env:
+            - name: API_PUBLIC_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: cyberops-config
+                  key: API_PUBLIC_URL
           resources:
             requests:
               memory: 128Mi
