@@ -28,6 +28,7 @@
 | v1.9 | ✅ | Ownership у звітах + модель видимості даних задокументована | (поточний) |
 | v1.10 | ✅ | Gateway: актуальний стек + виправлено Dockerfile і трейсинг | (поточний) |
 | v1.11 | ✅ | Refresh-токен у тілі запиту замість query | (поточний) |
+| v1.12 | ✅ | K8s: `DATABASE_URL`/`CORS_ORIGINS` у Secret, а не ConfigMap + інваріанти манифестів | (поточний) |
 
 ## Фікси після введення в експлуатацію
 
@@ -289,6 +290,49 @@
   у query, має отримати помилку, а не тиху успішну відповідь.
 - **Тести:** 192 → 195 (refresh з тіла, відмова query, сміття → 401).
 
+## v1.12 — K8s-конфіг був слабший за Docker-prod
+
+Погляд на `infrastructure/kubernetes/` показав розбіжність із тим, що
+v1.7 зробив для compose: у Docker-prod секрети обов'язкові, а K8s-база
+лишилась з dev-значеннями в ConfigMap.
+
+- **Пароль бази лежав у ConfigMap.** `DATABASE_URL` містить
+  `cyberops:cyberops@postgres`, а ConfigMap не шифрований і читається будь-ким
+  з `get configmaps`. Перенесено в `cyberops-secrets` — там, де вже лежать
+  `POSTGRES_PASSWORD` і `JWT_SECRET`.
+- **`CORS_ORIGINS` був `"*"`.** У compose-prod він обов'язковий (`:?`), а в
+  K8s-базі — зірочка, тобто будь-який origin міг викликати API з браузера
+  і читати відповіді з куки/токенів. Тепер у Secret, зі значенням для
+  локального стенду; для продакшену overlay має перекрити його (або ключ
+  прибирається — тоді не дозволений жоден origin, що й краще за зірочку).
+- **Нотатка на секції secret:** значення в репозиторії — заглушки, для
+  продакшену потрібен зовнішній менеджер (Secrets Manager, Vault, External
+  Secrets, Sealed Secrets). Факт заглушок у Git — не сам по собі діра,
+  але без нотатки через рік ніхто не зрозуміє, що це не справжні секрети.
+
+### Регресія, яку це внесло
+
+`kubectl kustomize` перевіряє синтаксис, а не семантику — тому перенесення
+ключа в Secret пройшло CI зеленим і зламало **`migrations`** Job:
+він мав лише `envFrom.configMapRef`, тому після перенесення `DATABASE_URL`
+опинився без нього.
+
+- **Помилка була тихою і неочевидною.** `app/config.py:28` має дефолт
+  `postgresql+asyncpg://cyberops:cyberops@localhost:5432/cyberops`, тому
+  Job не падав із «бракує змінної», а йшов в `localhost` усередині поду —
+  тобто connection refused. `deploy.yml:34` чекає на `job/migrations`, тож
+  пайплайн зупинявся б на таймауті, а не на зрозумілій помилці.
+- **Виправлено:** `migrations.yaml` тепер імпортує і ConfigMap, і Secret.
+- **Щоб цього не повторилось — 6 тестів** (`tests/test_k8s_manifests.py`):
+  кожен app-контейнер (`core`/`auth`/`worker`/`gateway`/`migrations`) має
+  обидва `envFrom`; `DATABASE_URL`/`CORS_ORIGINS` не повертаються в ConfigMap;
+  `CORS_ORIGINS != "*"`; потрібні ключі є в Secret. Тест на `secretRef`
+  перевірено у реверсі — він падає на незафіксованому `migrations.yaml`.
+  Всього 201.
+
+Перевірено: `kubectl kustomize infrastructure/kubernetes/overlays/dev`
+збирається, у `migrations` приходять обидва джерела, 201 тест.
+
 ## Корисні команди для наступних сесій
 ```bash
 cd "C:/Users/DIMAS/Desktop/Programming/PythonPRO/CyberOps_PRO"
@@ -297,7 +341,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (184)
+cd backend && python -m pytest tests -q # тести (201)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

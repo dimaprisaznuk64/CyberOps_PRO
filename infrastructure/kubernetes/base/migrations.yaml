@@ -16,3 +16,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: cyberops-config
+            # DATABASE_URL живе у Secret, тому alembic потребує обох джерел.
+            # Без secretRef Job підставив би дефолт з app/config.py — той самий
+            # рядок на localhost, тобто Job падав би з connection refused.
+            - secretRef:
+                name: cyberops-secrets

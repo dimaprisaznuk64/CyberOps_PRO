@@ -26,6 +26,10 @@ web-dashboard.
 | **1.6** | ✅ | Агрегований ризик активу: поточний + історичний максимум, бейджі в UI ✅ |
 | **1.7** | ✅ | Віддалене розгортання: порти лише gateway/UI, обов'язкові секрети в prod, SSH-тунель до метрик ✅ |
 | **1.8** | ✅ | Закрито ескалацію через register + реальний сівач адміна ✅ |
+| **1.9** | ✅ | Ownership у звітах + задокументована модель видимості даних ✅ |
+| **1.10** | ✅ | Gateway: актуальний стек (18 CVE), робочий Dockerfile, трейсинг ✅ |
+| **1.11** | ✅ | Refresh-токен у тілі запиту замість query ✅ |
+| **1.12** | ✅ | K8s: `DATABASE_URL`/`CORS_ORIGINS` у Secret, а не ConfigMap ✅ |
 
 ## Ролі (RBAC)
 
@@ -231,6 +235,26 @@ infrastructure/kubernetes/
 - Prometheus scrape-таргети через DNS: `gateway:8000`, `core:8001`,
   `auth:8002`, `worker:9091`.
 
+**Конфіг і секрети (v1.12):** несекретні параметри (`APP_ENV`, URL сервісів,
+ліміти) живуть у ConfigMap `cyberops-config`, а **усі ключі з паролями — у
+Secret `cyberops-secrets`**: `POSTGRES_PASSWORD`, `JWT_SECRET`,
+`DATABASE_URL` (містить пароль) і `CORS_ORIGINS`. ConfigMap не шифрований і
+читається через `kubectl get configmap -o yaml`, тож `DATABASE_URL` у ньому —
+це пароль у відкритому вигляді.
+
+Значення в `secret.yaml` — **заглушки для локального стенду**, у Git вони
+не є справжніми секретами. Для продакшену підключіть зовнішній менеджер
+(AWS Secrets Manager, Vault, External Secrets, Sealed Secrets) і перекрийте
+значення через overlay — зокрема `CORS_ORIGINS`, де в базі стоїть лише
+`http://localhost:3000`. Якщо ключ прибрати, жоден origin не буде дозволений
+(це краще, ніж `"*"`).
+
+> **Помилка, яка тут була:** `kubectl kustomize` перевіряє синтаксис, а не
+> семантику, тому перенесення `DATABASE_URL` у Secret зелено пройшло CI і
+> зламало Job `migrations` — він мав лише `configMapRef`, тож Alembic узяв
+> дефолтний `localhost` із `app/config.py` і впав з connection refused.
+> Інваріанти на цю зв'язку тепер у `tests/test_k8s_manifests.py`.
+
 **Образи:** compass tags задаються через `IMAGE_PREFIX`/`IMAGE_TAG`
 (за замовчуванням `cyberops/*:latest`):
 
@@ -247,7 +271,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 127 тестів
+python -m pytest tests -q                 # 201 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
