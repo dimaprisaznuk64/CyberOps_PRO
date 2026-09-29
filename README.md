@@ -271,7 +271,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 206 тестів
+python -m pytest tests -q                 # 211 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE

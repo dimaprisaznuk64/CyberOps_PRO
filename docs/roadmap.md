@@ -328,7 +328,7 @@ v1.7 зробив для compose: у Docker-prod секрети обов'язк�
   обидва `envFrom`; `DATABASE_URL`/`CORS_ORIGINS` не повертаються в ConfigMap;
   `CORS_ORIGINS != "*"`; потрібні ключі є в Secret. Тест на `secretRef`
   перевірено у реверсі — він падає на незафіксованому `migrations.yaml`.
-  Всього 206.
+  Всього 211.
 
 Перевірено: `kubectl kustomize infrastructure/kubernetes/overlays/dev`
 збирається, у `migrations` приходять обидва джерела, 201 тест.
@@ -404,14 +404,51 @@ docker.yml:20  Unrecognized function: 'lower'
 **+3 тести** (`tests/test_k8s_manifests.py`) на семантику, яку не ловить
 жоден синтаксичний перевіряч: `nodePort` без типу, слеш у ключах ConfigMap
 (і в статичних, і згенерованих `configMapGenerator`). Кожен перевірено у
-реверсі — на відкачених правках падають. Всього 206.
+реверсі — на відкачених правках падають. Всього 211.
 
 Урок: `kubectl kustomize` у CI дає хибну впевненість. Правило, що спрацює
 тут — перевіряти те, що API реально відхиляє, на живому кластері (kind у
 CI це вже дає), а регресії на семантику фіксувати тестами.
 
-Перевірено на CI: `test` (206) і `frontend` зелені, `Docker` зібрав і
-запушив образи в GHCR, kind-кластер створюється і вантажить образи.
+## Job migrations: `ValidationError` замість Alembic — і мертва охорона
+
+Після поправок `kubectl apply` нарешті пройшов, і перший реальний E2E впав
+на `Wait migrations`: чотири спроби, усі в `Error`. Логи показали, що Job
+падає не в Alembic, а на імпорті `app.config`.
+
+**Причина 1: секрет із 27 байтів.** `JWT_SECRET: change-me-in-production-now`
+у k8s `secret.yaml` — це 27 байт, а HS256 вимагає ≥ 32. Валідатор з v1.2
+давав `ValidationError` ще до `alembic upgrade`, тож Job падав, не торкаючись
+бази. Замінено на 45-байтний шаблон, який лишається у списку шаблонних.
+
+**Причина 2 (гірша): охорона була мертвою.** Перевірка шаблонних секретів
+дивилася на `app_env == "production"`, але і `docker-compose.prod.yml`, і
+k8s ConfigMap виставляють **`APP_ENV: prod`**. Тобто жоден реальний
+прод-деплой ніколи не проходив цю перевірку — ані JWT, ані `admin/admin`.
+
+- Чому не помітив CI: тести користувалися рядком `"production"`, тобто
+  перевіряли не той значення, що є в прод-конфігах. Класичний випадок, коли
+  тест і код живуть у своєму світі.
+- Тепер `_is_production()` приймає і `production`, і `prod` (з
+  нормалізацією регістру й пробілів — значення приходить із YAML/ENV).
+- **+3 тести**: `prod` запускає охорону для обох секретів, `PROD ` з
+  пробілом теж, і «корисна» властивість k8s-секрету: довший за 32 байти, тож
+  dev-стенд піднімається, але production із ним не стартує. Перевірено у
+  реверсі: на старій перевірці `== "production"` три з них падають.
+
+**Побічний ефект, який довелось відкотити назад.** Після того як охорона
+запрацювала, kind-стенд почав падати з тієї ж причини: base-конфіг має
+`APP_ENV: prod` і працює на заглушках. Тому dev-overlay тепер перекриває
+`APP_ENV` на `dev` через JSON-patch, а base лишається `prod` для
+справжніх прод-оверлеїв. **+2 тести** фіксують обидві сторони — інакше
+наступна сесія знову спіткнеться на «а чому падає стенд».
+
+**+8 тестів, всього 211.** Локально відтворено точно: `docker run` з
+`APP_ENV=prod` і заглушками віддає `2 validation errors`, без `APP_ENV` —
+міграції проходять.
+
+Перевірено на CI: `test` (211) і `frontend` зелені, `Docker` зібрав і
+запушив образи в GHCR, `kubectl apply` проходить, kind вантажить образи.
 
 ## Корисні команди для наступних сесій
 ```bash
@@ -421,7 +458,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (206)
+cd backend && python -m pytest tests -q # тести (211)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE

@@ -3,3 +3,17 @@ kind: Kustomization
 
 resources:
   - ../../base
+
+# Стенд для розробки й kind-E2E: працює на заглушках із base/secret.yaml
+# ("dev-only-insecure-secret-change-me-...", admin/admin). Тому APP_ENV
+# тут dev — інакше охорона з app/config.py (вона перевіряє і "prod")
+# відмовиться стартувати, і Job migrations впаде в ValidationError.
+# Для продакшену потрібен інший overlay: власні секрети + APP_ENV=prod.
+patches:
+  - target:
+      kind: ConfigMap
+      name: cyberops-config
+    patch: |-
+      - op: replace
+        path: /data/APP_ENV
+        value: dev

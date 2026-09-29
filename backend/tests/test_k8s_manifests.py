@@ -9,6 +9,7 @@ Secret, а якийсь контейнер забув підключити Secre
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ yaml = pytest.importorskip("yaml", reason="PyYAML приходить з uvicorn[
 
 ROOT = Path(__file__).resolve().parents[2]
 BASE = ROOT / "infrastructure" / "kubernetes" / "base"
+OVERLAYS = ROOT / "infrastructure" / "kubernetes" / "overlays"
 CONFIGMAP = BASE / "configmap.yaml"
 SECRET = BASE / "secret.yaml"
 
@@ -180,3 +182,35 @@ def test_generated_configmap_keys_have_no_slashes() -> None:
             if "/" in key:
                 bad.append(f"{entry.get('name')}: {key}")
     assert bad == [], f"configMapGenerator з ключами зі слешем: {bad}"
+
+
+def _app_env_of(overlay: Path | None) -> str | None:
+    """APP_ENV, який отримає застосунок. Overlay з patch'ем читаємо вручну:
+    kustomize в тестах не запускаємо, а розбіжність між base і overlay
+    тут і була причиною падіння migrations на kind."""
+    if overlay is None:
+        return _load(CONFIGMAP)["data"]["APP_ENV"]
+    kustomization = _load(overlay / "kustomization.yaml")
+    for patch in kustomization.get("patches") or []:
+        body = patch.get("patch") or ""
+        if "APP_ENV" in body and (patch.get("target") or {}).get("name") == "cyberops-config":
+            match = re.search(r"value:\s*(\S+)", body)
+            if match:
+                return match.group(1).strip("'\"")
+    return _load(CONFIGMAP)["data"]["APP_ENV"]
+
+
+def test_dev_overlay_runs_as_dev_with_the_placeholder_secrets() -> None:
+    """Стенд (і kind-E2E) працює на заглушках із base/secret.yaml.
+
+    Якщо overlay лишає APP_ENV=prod, охорона з app/config.py (яка тепер
+    перевіряє і "prod", див. test_jwt_secret.py) відмовиться стартувати, і
+    Job migrations впаде в ValidationError. Тому dev-стенд мусить бути dev.
+    """
+    assert _app_env_of(OVERLAYS / "dev") == "dev"
+
+
+def test_base_manifests_stay_in_production_mode() -> None:
+    """Base — це основа для прод-оверлея, тож APP_ENV=prod. Якщо змінити на
+    dev, охорона не спрацює ніде: реальні деплої беруть саме base."""
+    assert _app_env_of(None) == "prod"

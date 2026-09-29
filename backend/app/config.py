@@ -16,6 +16,17 @@ PLACEHOLDER_SECRETS = {
 }
 PLACEHOLDER_PASSWORDS = {"admin", "password", "changeme", "change-me", "secret"}
 
+# Значення, якими позначають продакшен: і compose-prod, і k8s ConfigMap
+# ставлять саме "prod". Раніше перевірка шаблонних секретів дивилася лише на
+# "production", тож жоден реальний prod-деплой її не проходив — захист із
+# v1.2 був мертвим, а тести цього не ловили, бо теж користувалися
+# "production" замість значення з прод-конфігів.
+PRODUCTION_ENV_VALUES = {"production", "prod"}
+
+
+def _is_production(app_env: Any) -> bool:
+    return isinstance(app_env, str) and app_env.strip().lower() in PRODUCTION_ENV_VALUES
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -67,7 +78,7 @@ class Settings(BaseSettings):
                 f"{'HS256'}; зараз {len(value.encode())}. Згенеруйте: "
                 'python -c "import secrets; print(secrets.token_urlsafe(48))"'
             )
-        if info.data.get("app_env") == "production" and value in PLACEHOLDER_SECRETS:
+        if _is_production(info.data.get("app_env")) and value in PLACEHOLDER_SECRETS:
             raise ValueError("JWT_SECRET досі є шаблонним — згенеруйте власний")
         return value
 
@@ -84,7 +95,7 @@ class Settings(BaseSettings):
         # Пароль seed-адміністратора — це фактично другий публічний вхід у
         # систему, а compose-override вимагає змінну, але «admin» її
         # задовольняє. Тому в production-режимі шаблонні значення відсікаються.
-        if info.data.get("app_env") == "production" and value.lower() in PLACEHOLDER_PASSWORDS:
+        if _is_production(info.data.get("app_env")) and value.lower() in PLACEHOLDER_PASSWORDS:
             raise ValueError(
                 "ADMIN_PASSWORD досі шаблонний — публічний інстанс із admin/admin "
                 "не є демо, а дірою; задайте власний"
