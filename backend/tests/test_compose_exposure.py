@@ -2,12 +2,17 @@
 
 Перевірка навмисно не дублює `docker compose config`: вона ловить саме
 регресії, які легко впустити очима, — хтось додасть сервіс або змінить
-порт, і Postgres/RabbitMQ/Grafana знову опиняться в публічному інтернеті
+порт, і Postgres/RabbitMQ/Grafana знову опиняться у публічному інтернеті
 разом з gateway і UI.
+
+Файл читається як сирий YAML, тож підстановки змінних треба розібрати
+власноруч — інакше `${POSTGRES_PORT:-5432}` розсипається на п'ять частин
+через двокрапку всередині фігурних дужок.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -20,6 +25,29 @@ PROD_OVERRIDE = ROOT / "docker-compose.prod.yml"
 
 # Єдині сервіси, до яких звертається браузер: gateway (API) і frontend (UI).
 PUBLIC_SERVICES = {"gateway", "frontend"}
+
+# ${VAR}, ${VAR:-default}, ${VAR-default}, ${VAR:?err}, ${VAR?err}
+_VARIABLE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::?([-?])([^}]*))?\}")
+
+
+def _substitute(text: str) -> str:
+    """Підставляє значення за замовчуванням, як це робив би compose без .env.
+
+    Для перевірки інваріантів цікавий саме дефолт: якщо порт не задано у .env
+    (тобто на чистій машині чи в CI), саме він публікується назовні.
+
+    `?` (на відміну від `-`) — не дефолт, а вимога задати змінну: compose зупиниться
+    на старті. Підставляти сюди текст помилки безглуздо, тож він стає порожнім —
+    і тест падає на `isdigit` з читабельним текстом замість мовчки прийнятого
+    сміття.
+    """
+
+    def replace(match: re.Match) -> str:
+        if match.group(2) == "-":
+            return match.group(3)
+        return ""
+
+    return _VARIABLE.sub(replace, text)
 
 
 def _load(path: Path) -> dict:
@@ -40,10 +68,11 @@ def _published_ports(service: dict) -> list[tuple[str, int, str | None]]:
             )
         else:
             # "8000:8000" або "127.0.0.1:5432:5432"
-            parts = str(spec).split(":")
+            parts = _substitute(str(spec)).split(":")
             assert len(parts) in (2, 3), f"незрозумілий порт: {spec}"
             host_ip = parts[0] if len(parts) == 3 else None
             published, target = (parts[-2], parts[-1]) if host_ip else (parts[0], parts[1])
+            assert target.isdigit(), f"порт має бути числом, а не {target!r}: {spec}"
             out.append((published, int(target), host_ip))
     return out
 
@@ -100,3 +129,22 @@ def test_prod_override_does_not_publish_extra_ports() -> None:
     # публічне в списку public, інакше compose їх склеїв би.
     for name, service in _load(PROD_OVERRIDE)["services"].items():
         assert not service.get("ports"), f"{name}: override не має публікувати порти"
+
+
+def test_substitute_reads_compose_defaults() -> None:
+    # Розбір списку портів тримається на цьому: без нього
+    # "127.0.0.1:${POSTGRES_PORT:-5432}:5432" дає п'ять частин замість трьох
+    # і перевірка падає на синтаксисі, а не на сенсі.
+    assert _substitute("${POSTGRES_PORT:-5432}") == "5432"
+    assert _substitute("${PORT}") == ""
+    assert _substitute("127.0.0.1:${POSTGRES_PORT:-5433}:5432") == "127.0.0.1:5433:5432"
+    # Службове повідомлення в ${VAR:?} не має підставлятись у порт.
+    assert _substitute("${VAR:?must be set}") == ""
+
+
+def test_postgres_publishes_only_a_loopback_port() -> None:
+    postgres = _load(COMPOSE)["services"]["postgres"]
+    ports = _published_ports(postgres)
+    assert ports == [("5432", 5432, "127.0.0.1")], (
+        f"postgres має публікувати лише 127.0.0.1 із внутрішнім 5432: {ports}"
+    )

@@ -57,7 +57,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cyberops}
       POSTGRES_DB: ${POSTGRES_DB:-cyberops}
     ports:
-      - "127.0.0.1:5432:5432"
+      # Порт хоста — лише для psql/DBeaver ззовні. Якщо на машині вже є
+      # локальний Postgres, задайте POSTGRES_PORT=5433 у .env: усередині
+      # мережі compose посилання йдуть на ім'я `postgres:5432`, тож внутрішній
+      # порт не змінюється і DATABASE_URL правити не треба.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

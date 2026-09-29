@@ -271,7 +271,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 201 тестів
+python -m pytest tests -q                 # 203 тести
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -349,6 +349,12 @@ ssh -N -L 3001:localhost:3001 -L 16686:localhost:16686 -L 9090:9090 \
 
 Це не косметика: дефолтний compose відкривав `:5432` з `admin/admin`
 seed-користувачем у публічний інтернет.
+
+> **Конфлікт на локальній машині.** Якщо `5432` вже займає ваш власний
+> PostgreSQL (або щось інше), `docker compose up` впаде на
+> `ports are not available`. Задайте в `.env` `POSTGRES_PORT=5433` — це
+> порт лише на хості; усередині мережі compose посилається на
+> `postgres:5432`, тож `DATABASE_URL` змінювати не треба.
 
 **2. `NEXT_PUBLIC_API_URL` вшивається в бандл під час збірки.** Зібраний
 на сервері фронтенд із дефолтом `http://localhost:8000` звертатиметься до

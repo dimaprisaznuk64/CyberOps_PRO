@@ -328,10 +328,35 @@ v1.7 зробив для compose: у Docker-prod секрети обов'язк�
   обидва `envFrom`; `DATABASE_URL`/`CORS_ORIGINS` не повертаються в ConfigMap;
   `CORS_ORIGINS != "*"`; потрібні ключі є в Secret. Тест на `secretRef`
   перевірено у реверсі — він падає на незафіксованому `migrations.yaml`.
-  Всього 201.
+  Всього 203.
 
 Перевірено: `kubectl kustomize infrastructure/kubernetes/overlays/dev`
 збирається, у `migrations` приходять обидва джерела, 201 тест.
+
+## Локальний стенд: порт Postgres на хості
+
+Під час перевірки на живому стенді `docker compose up` впав не на логіці
+застосунку, а на bind: `ports are not available ... 127.0.0.1:5432`. На
+машині вже був локальний **PostgreSQL 18** — не наш контейнер. Інваріант із
+v1.7 («сервіси слухають лише 127.0.0.1») працював як треба, але стенд через
+це не піднімався взагалі.
+
+- **Хардкод був у compose:** `127.0.0.1:5432:5432`. Тепер порт хоста —
+  параметр `POSTGRES_PORT` (дефолт 5432), внутрішній лишається 5432. Тому
+  `DATABASE_URL` правити не довелося: усередині мережі compose посилання
+  йдуть на ім'я `postgres:5432`, а не на порт з мапінгу.
+- **Значення в `.env` — локальне.** У CI/на чистій машині змінної немає,
+  тож публікується дефолт 5432 і поведінка не міняється.
+- **Тест на розбір підстановок пришлось перероби.** `test_compose_exposure`
+  читає сирий YAML і ділить `ports` на `:` — а `${POSTGRES_PORT:-5432}`
+  має двокрапку всередині фігурних дужок, тож рядок розпадався на п'ять
+  частин і тест падав на синтаксисі. Тепер `_substitute()` розбирає
+  `${VAR}`, `${VAR:-d}`, `${VAR-d}`, `${VAR:?err}`. Різниця `-` і `?`
+  не косметична: `-` це дефолт, а `?` — вимога задати змінну, тож
+  підставляти текст помилки в порт не можна.
+- **Плюс 2 тести** (розбір підстановок + postgres публікує лише loopback
+  із внутрішнім 5432), всього 203. Обидва перевірено у реверсі: на
+  `5432:5432` без `127.0.0.1` падають.
 
 ## Корисні команди для наступних сесій
 ```bash
@@ -341,7 +366,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (201)
+cd backend && python -m pytest tests -q # тести (203)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE
