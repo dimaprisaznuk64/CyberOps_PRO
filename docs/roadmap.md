@@ -29,7 +29,7 @@
 | v1.10 | ✅ | Gateway: актуальний стек + виправлено Dockerfile і трейсинг | (поточний) |
 | v1.11 | ✅ | Refresh-токен у тілі запиту замість query | (поточний) |
 | v1.12 | ✅ | K8s: `DATABASE_URL`/`CORS_ORIGINS` у Secret, а не ConfigMap + інваріанти манифестів | (поточний) |
-| v1.13 | ✅ | Kind-E2E: frontend/gateway не піднімалися, міграції витрачали retry — логів не було взагалі | (поточний) |
+| v1.13 | ✅ | Kind-E2E: frontend/gateway не піднімалися, міграції витрачали retry — плюс логів не було взагалі | `ccb1a05`, `fb0a14d` |
 
 ## v1.13 — kind-E2E падав, а воркфлою не показував чому
 
@@ -134,6 +134,21 @@ assert'ом, що `GATEWAY_PORT` досі генерується — інакш�
 Спільне: перевірка синтаксису не є перевіркою семантики, а семантика
 запускається лише на живому кластері. Тому першим кроком був `Diagnostics`,
 а не виправлення — без нього наступна сесія витратила б час на вгадування.
+
+**Підтверджено на CI:** `Deploy (kind)` зелений — 15/15 подів без рестартів,
+`migrations` з однією спробою, smoke-тест через gateway повернув
+`{"status":"ok","services":{"auth":"ok","core":"ok"}}`. Тепер це **єдиний
+спосіб побачити k8s-деплой у робочому стані**: до v1.13 `kubectl apply`
+проходив, а стенд не піднімався, і ніхто цього не помічав.
+
+### Урок, який варто зберегти
+
+Моя перша версія причини (livenessProbe) була **неправильною**, і жоден
+тест не допоміг — бо тест не може перевірити, що змінна з'явиться лише на
+живому кластері. Допомогло рівно одне: воркфлою знімає логи. Тому перший
+крок у наступній сесії, коли щось падає на kind, — перевірити, чи є
+`Diagnostics` у лозі, і читати саме його, а не `Pods`.
+
 
 ## Фікси після введення в експлуатацію
 
@@ -563,7 +578,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (211)
+cd backend && python -m pytest tests -q # тести (219)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE
