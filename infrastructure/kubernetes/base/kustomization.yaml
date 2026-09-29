@@ -21,10 +21,22 @@ resources:
   - grafana.yaml
 
 configMapGenerator:
-  - name: grafana-provisioning
+  # Ключі ConfigMap не можуть містити "/", тому кожен каталог provisioning
+  # — окремий ConfigMap, а поділка робиться через subPath у grafana.yaml.
+  # Варіант "grafana-provisioning" з ключами datasources/datasource.yaml
+  # збирався kustomize, але kubectl apply відхиляв увесь маніфест.
+  - name: grafana-datasources
     options:
       disableNameSuffixHash: true
     files:
-      - datasources/datasource.yaml=grafana/datasource.yaml
-      - dashboards/dashboards.yaml=grafana/dashboards.yaml
-      - dashboards/cyberops.json=grafana/cyberops.json
+      - datasource.yaml=grafana/datasource.yaml
+  - name: grafana-dashboards-provider
+    options:
+      disableNameSuffixHash: true
+    files:
+      - dashboards.yaml=grafana/dashboards.yaml
+  - name: grafana-dashboards
+    options:
+      disableNameSuffixHash: true
+    files:
+      - cyberops.json=grafana/cyberops.json

@@ -116,3 +116,67 @@ def test_placeholder_secrets_are_marked_as_not_for_production() -> None:
     # секрети, нотатка зникне разом із єдиним сигналом про це.
     header = "\n".join(SECRET.read_text(encoding="utf-8").splitlines()[:6])
     assert "НЕ для продакшену" in header
+
+
+def _all_service_docs() -> list[tuple[str, dict[str, Any]]]:
+    out: list[tuple[str, dict[str, Any]]] = []
+    for path in sorted(BASE.glob("*.yaml")):
+        for doc in _documents(path):
+            if doc.get("kind") == "Service":
+                out.append((path.name, doc))
+    return out
+
+
+def test_services_with_nodeport_declare_the_nodeport_type() -> None:
+    """nodePort можливий лише для type: NodePort.
+
+    Регресія, знайдена на kind-E2E: у jaeger.yaml був nodePort: 30086 без
+    `type: NodePort`, тож Service лишався ClusterIP, а apiserver відхиляв
+    увесь apply — разом із усіма іншими ресурсами маніфесту. `kubectl
+    kustomize` такий Service пропускає: він перевіряє синтаксис, а не
+    семантику API.
+    """
+    offenders = {
+        f"{filename}/{doc['metadata']['name']}": port.get("nodePort")
+        for filename, doc in _all_service_docs()
+        for port in (doc.get("spec", {}).get("ports") or [])
+        if port.get("nodePort") is not None and doc.get("spec", {}).get("type") != "NodePort"
+    }
+    assert offenders == {}, f"nodePort без type: NodePort: {offenders}"
+
+
+def test_configmap_keys_have_no_slashes() -> None:
+    """Ключ ConfigMap не може містити "/" (regex [-._a-zA-Z0-9]+).
+
+    Kustomize це дозволяє, тож помилка вилізає лише на `kubectl apply`:
+    grafana-provisioning з ключами "datasources/datasource.yaml" змусив
+    відхилити весь маніфест. Розділення на підкаталоги робиться через
+    subPath у volumeMounts, а не через "/" у ключі.
+    """
+    bad: dict[str, list[str]] = {}
+    for path in sorted(BASE.glob("*.yaml")):
+        for doc in _documents(path):
+            if doc.get("kind") != "ConfigMap":
+                continue
+            keys = list(doc.get("data") or {}) + list(doc.get("binaryData") or {})
+            invalid = [key for key in keys if "/" in key]
+            if invalid:
+                bad[f"{path.name}/{doc['metadata']['name']}"] = invalid
+    assert bad == {}, f"ключі ConfigMap зі слешем: {bad}"
+
+
+def test_generated_configmap_keys_have_no_slashes() -> None:
+    """Те саме для configMapGenerator у kustomization.yaml.
+
+    Тут інваріант не читається з YAML напряму: kustomize генерує ConfigMap
+    під час збірки, тож перевіряємо його складальник — саме він раніше
+    вписав ключі зі слешем.
+    """
+    kustomization = _load(BASE / "kustomization.yaml")
+    bad: list[str] = []
+    for entry in kustomization.get("configMapGenerator") or []:
+        for item in entry.get("files") or []:
+            key = str(item).split("=", 1)[0]
+            if "/" in key:
+                bad.append(f"{entry.get('name')}: {key}")
+    assert bad == [], f"configMapGenerator з ключами зі слешем: {bad}"

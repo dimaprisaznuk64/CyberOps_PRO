@@ -23,17 +23,39 @@ spec:
           ports:
             - containerPort: 3000
           volumeMounts:
-            - name: provisioning
-              mountPath: /etc/grafana/provisioning
+            # Розділені на три підключення саме через обмеження ключів
+            # ConfigMap: там не може бути "/". Раніше все лежало в одному
+            # ConfigMap з ключами виду "datasources/datasource.yaml", і
+            # kubectl apply відхиляв увесь маніфест. subPath монтує потрібний
+            # ключ у потрібний каталог provisioning.
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources/datasource.yaml
+              subPath: datasource.yaml
+              readOnly: true
+            - name: dashboards-provider
+              mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+              subPath: dashboards.yaml
+              readOnly: true
+            - name: dashboards
+              mountPath: /etc/grafana/provisioning/dashboards/cyberops.json
+              subPath: cyberops.json
               readOnly: true
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
       volumes:
-        - name: provisioning
+        # Один ConfigMap на каталог: ключі без "/", кожен монтується через
+        # subPath у потрібне місце (див. volumeMounts).
+        - name: datasources
           configMap:
-            name: grafana-provisioning
+            name: grafana-datasources
+        - name: dashboards-provider
+          configMap:
+            name: grafana-dashboards-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
 ---
 apiVersion: v1
 kind: Service

@@ -35,6 +35,11 @@ kind: Service
 metadata:
   name: jaeger
 spec:
+  # nodePort можливий лише для NodePort. Без цього рядка Service лишається
+  # ClusterIP (дефолт), і apiserver відхиляє маніфест цілком:
+  # "spec.ports[1].nodePort: Forbidden: may not be used when `type` is
+  # 'ClusterIP'" — тобто не застосується навіть решта Service.
+  type: NodePort
   selector:
     app: jaeger
   ports:

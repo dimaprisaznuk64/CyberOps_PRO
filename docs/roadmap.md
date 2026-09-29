@@ -328,7 +328,7 @@ v1.7 зробив для compose: у Docker-prod секрети обов'язк�
   обидва `envFrom`; `DATABASE_URL`/`CORS_ORIGINS` не повертаються в ConfigMap;
   `CORS_ORIGINS != "*"`; потрібні ключі є в Secret. Тест на `secretRef`
   перевірено у реверсі — він падає на незафіксованому `migrations.yaml`.
-  Всього 203.
+  Всього 206.
 
 Перевірено: `kubectl kustomize infrastructure/kubernetes/overlays/dev`
 збирається, у `migrations` приходять обидва джерела, 201 тест.
@@ -358,6 +358,61 @@ v1.7 («сервіси слухають лише 127.0.0.1») працював �
   із внутрішнім 5432), всього 203. Обидва перевірено у реверсі: на
   `5432:5432` без `127.0.0.1` падають.
 
+## Перший запуск CI: воркфлою не парсилися, потім три справжні баги
+
+Проєкт жив локально і жодного разу не був на GitHub. `gh repo create` →
+перший пуш → усі три воркфлою впали за 0с з «This run likely failed
+because of a workflow file issue». Це виглядало як особливість першого
+пушу, але run без жодного кроку не перезапускається («cannot be retried»),
+тож помилку треба було дістати іншим способом — через `workflow_dispatch`,
+який і сам віддачив текст:
+
+```
+ci.yml:94      Unrecognized named-value: 'secrets'
+docker.yml:20  Unrecognized function: 'lower'
+```
+
+**Ланцюг помилок — кожна наступна ховалася за попередньою:**
+
+1. **`secrets` у кроковому `if`.** Контекст недоступний на цьому рівні,
+   тож Semgrep-умова не парсилася. Secret перенесено в `env` рівня job.
+   Побічно виправилось і реальне: Semgrep тепер і справді отримує токен,
+   а не лише перевіряв його наявність.
+2. **`lower()` не існує** в мові виразів GitHub (є `contains`, `format`,
+   `join`, `hashFiles`). Регістр для GHCR тепер знижується через `tr`.
+   Зверніть увагу: GHCR відхиляв би тег з великими літерами, тобто крок
+   був зламаний не лише на розборі, а й на самому пуші образів.
+3. **`setup-trivy@v0.2.3` не існує** — доступні `v0.2.6`, `v0.3.0`, `v0.3.1`.
+   Job `security` падав на «Set up job» ще до Bandit. А версія Trivy
+   `v0.58.2` теж виявилась не релізом (лише тегом), тож тепер `v0.70.0` —
+   перша з реальним `release`.
+4. **`kind load` не знаходив кластер.** `kind-action` за замовчуванням
+   створює `chart-testing`, а `kind load` без `--name` читає контекст
+   `kind`. Імʼя тепер задано явно.
+
+**Далі `kubectl apply` показав те, що `kustomize` принципово не бачить:**
+
+- **`jaeger.yaml`: `nodePort` без `type: NodePort`.** Service лишався
+  ClusterIP, а apiserver відхиляв `spec.ports[1].nodePort: Forbidden`.
+  Ключова деталь: відхиляється весь apply, тож разом із усіма іншими
+  ресурсами маніфесту — однією помилкою зупиняється весь розгортання.
+- **ConfigMap із ключами `datasources/datasource.yaml`.** Ключ ConfigMap не
+  може містити `/` (regex `[-._a-zA-Z0-9]+`). Kustomize таке дозволяє, тож
+  помилка вилізає лише на застосуванні. Розділено на три ConfigMap по
+  каталогах + `subPath` у `volumeMounts`.
+
+**+3 тести** (`tests/test_k8s_manifests.py`) на семантику, яку не ловить
+жоден синтаксичний перевіряч: `nodePort` без типу, слеш у ключах ConfigMap
+(і в статичних, і згенерованих `configMapGenerator`). Кожен перевірено у
+реверсі — на відкачених правках падають. Всього 206.
+
+Урок: `kubectl kustomize` у CI дає хибну впевненість. Правило, що спрацює
+тут — перевіряти те, що API реально відхиляє, на живому кластері (kind у
+CI це вже дає), а регресії на семантику фіксувати тестами.
+
+Перевірено на CI: `test` (206) і `frontend` зелені, `Docker` зібрав і
+запушив образи в GHCR, kind-кластер створюється і вантажить образи.
+
 ## Корисні команди для наступних сесій
 ```bash
 cd "C:/Users/DIMAS/Desktop/Programming/PythonPRO/CyberOps_PRO"
@@ -366,7 +421,7 @@ docker compose -f security-lab/docker-compose.yml up -d --build
 python scripts/demo.py --host test-db   # E2E демо через Gateway
 docker compose --profile mail up -d      # локальний SMTP-стенд (пошта на :8025)
 python -m ruff check app tests ../workers ../services ../gateway   # backend/.venv
-cd backend && python -m pytest tests -q # тести (203)
+cd backend && python -m pytest tests -q # тести (206)
 cd frontend && npm run build && npx tsc --noEmit
 cd backend && python -m bandit -r app ../gateway ../workers ../services -ll   # SAST
 cd backend && python -m pip_audit -r requirements.txt                        # CVE
