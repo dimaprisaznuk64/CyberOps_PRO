@@ -4,6 +4,11 @@ on:
   push:
     branches: [master]
   pull_request:
+  # Перший пуш у нове репо не запускає воркфлою: файли з'являються в
+  # гілці і той самий коміт їх тригерить, тож GitHub не встигає їх зареєструвати
+  # (run падає за 0s з "workflow file issue"). workflow_dispatch дозволяє
+  # перезапустити прогін вручну без фіктивного коміту.
+  workflow_dispatch:
 
 jobs:
   test:
