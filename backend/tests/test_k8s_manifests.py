@@ -471,19 +471,61 @@ def test_migrations_wait_understands_the_shipped_database_url() -> None:
 DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
 
 
-def test_smoke_test_verifies_login_not_only_health() -> None:
-    """E2E має доводити, що в систему можна увійти, а не лише що вона відповідає.
 
-    Регресія, знайдена на kind: усі поді були Running, `/health` був зелений,
-    а адміністратора не існувало — сид падав на старті (міграції ще не
-    накачені) і більше не повторювався. Старий smoke робив один `curl /health`
-    і цю провину не бачив.
+WORKFLOWS = ROOT / ".github" / "workflows"
+SMOKE_SCRIPT = ROOT / "scripts" / "smoke.sh"
 
-    Тому перевіряємо саме наявність кроку з логіном: його легко випадково
-    видалити «на спрощення», і тоді CI знову стане зеленим на неробочій
-    системі.
+
+@pytest.mark.parametrize("workflow", ["deploy.yml", "prod-e2e.yml"])
+def test_both_stands_use_the_same_smoke_script(workflow: str) -> None:
+    """Перевірки поведінки мають бути одні й ті самі на обох стендах.
+
+    Копія smoke-тесту в двох воркфлоу розходиться з першою ж правкою: щось
+    додали в одному стенді й забули в іншому, а далі «CI зелений» більше
+    нічого не означає. Спільний скрипт робить розходження неможливим
+    навіть без цього тесту.
     """
-    text = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
-    assert "/api/v1/auth/login" in text, "у smoke-тесті немає перевірки логіну"
-    assert "Authorization: Bearer" in text, " немає авторизованого запиту після нього"
-    assert "::error::" in text, "кроки не вміють падати голосно"
+    text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+    assert "scripts/smoke.sh" in text, f"{workflow} не використовує спільний smoke.sh"
+
+
+def test_smoke_script_checks_behaviour_not_just_liveness() -> None:
+    """Скрипт має доводити можливість скористатися, а не лише що порт відповідає.
+
+    Регресія попереднього стану: один `curl /health` був зелений тричі поспіль
+    на системі, у якій ніхто не міг увійти.
+    """
+    text = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    for needle in (
+        "/health",
+        "/runtime-config.js",
+        "api/v1/auth/login",
+        "api/v1/assets",
+        "Origin:",
+    ):
+        assert needle in text, f"у smoke.sh немає перевірки {needle}"
+    # Значення, з якими порівнюємо, приходять ззовні: з ConfigMap чи з
+    # compose env. Константа в самому скрипті означала б, що тест
+    # підтверджує себе сам.
+    assert "EXPECTED_API_URL" in text
+
+
+def test_ci_does_not_bake_the_api_url_into_published_images() -> None:
+    """Опублікований образ не має бути прив'язаний до адреси збірки.
+
+    Регресія: `docker.yml` збирав frontend із
+    `build-args: NEXT_PUBLIC_API_URL=http://localhost:8000`, тож кожен, хто
+    візьме образ з GHCR, отримає UI, який ходить у localhost СВОГО
+    браузера. Локально це непомітно — важливо, що саме образ у реєстрі.
+    """
+    docker_workflow = (WORKFLOWS / "docker.yml").read_text(encoding="utf-8")
+    # Коментарі не враховуємо: пояснення, чому аргумент прибрано, закономірно
+    # згадує його назву, і тест падав би через власний коментар.
+    code = "\n".join(
+        line for line in docker_workflow.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "NEXT_PUBLIC_API_URL" not in code, (
+        "CI знову вписує адресу API в опублікований образ — образ стане "
+        "прив'язаним до адреси, під якою його зібрали"
+    )
+

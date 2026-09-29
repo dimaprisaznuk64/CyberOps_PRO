@@ -58,75 +58,21 @@ jobs:
           kubectl -n cyberops port-forward svc/frontend 3000:3000 &
           FE_PID=$!
           trap 'kill $GW_PID $FE_PID 2>/dev/null || true' EXIT
-          sleep 8
+          sleep 3
 
-          echo "--- gateway /health"
-          curl -fsS http://localhost:8000/health
-          echo
+          # Очікувані значення беремо з самої розгорнутої лози, а не з
+          # констант тут: інакше тест підтверджував би себе самого і був би
+          # зелений рівно тоді, коли змінна не доїде до контейнера.
+          secret_get() { kubectl -n cyberops get secret cyberops-secrets -o jsonpath="{.data.$1}" | base64 -d; }
+          FRONTEND_ORIGIN=$(kubectl -n cyberops get svc frontend -o jsonpath='{.spec.ports[0].nodePort}')
 
-          echo "--- frontend /runtime-config.js"
-          # Порівнюємо з ConfigMap, а не з константою: якщо змінна не доїде до
-          # контейнера, тест має впасти тут, а не на руках відвідувача.
-          API_URL=$(kubectl -n cyberops get configmap cyberops-config \
-            -o jsonpath='{.data.API_PUBLIC_URL}')
-          CONFIG=$(curl -fsS http://localhost:3000/runtime-config.js)
-          echo "$CONFIG"
-          grep -qF "\"$API_URL\"" <<<"$CONFIG" || {
-            echo "::error::runtime-конфіг не містить API_PUBLIC_URL=$API_URL"; exit 1; }
-
-          echo "--- admin credentials з Secret (не хардкод)"
-          secret_get() { kubectl -n cyberops get secret cyberops-secrets \
-            -o jsonpath="{.data.$1}" | base64 -d; }
-          USER=$(secret_get ADMIN_USERNAME)
-          PASS=$(secret_get ADMIN_PASSWORD)
-
-          echo "--- CORS: origin фронтенду має бути дозволений"
-          # Без цього кроку E2E зелений при заблокованому UI: curl не
-          # надсилає Origin, тож попередній тест не бачив неправильний
-          # CORS_ORIGINS (у k8s UI жив на :30010, а в CORS був лише :3000).
-          FRONTEND_ORIGIN=$(kubectl -n cyberops get svc frontend \
-            -o jsonpath='{.spec.ports[0].nodePort}')
-          ALLOW=$(curl -fsS -o /dev/null -D - -X OPTIONS \
-            http://localhost:8000/api/v1/auth/login \
-            -H "Origin: http://localhost:$FRONTEND_ORIGIN" \
-            -H "Access-Control-Request-Method: POST" \
-            | grep -i '^access-control-allow-origin:' | tr -d '\r' | awk '{print $2}')
-          echo "allow-origin: ${ALLOW:-<none>}"
-          [ "$ALLOW" = "http://localhost:$FRONTEND_ORIGIN" ] || {
-            echo "::error::CORS не дозволяє origin фронтенду :$FRONTEND_ORIGIN"; exit 1; }
-
-          echo "--- login + створення активу"
-          # Логін повторюється: сид адміна тепер має дожитися міграцій і сам
-          # намагається кілька разів, тож одразу після kubectl wait міг би ще
-          # не встигнути. Це не приховує поломку — спроб обмежено (60 с), і
-          # наприкінці падіння все одно голосне.
-          TOKEN=""
-          for attempt in $(seq 1 12); do
-            RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
-              http://localhost:8000/api/v1/auth/login \
-              -H 'Content-Type: application/json' \
-              -d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" || true)
-            CODE=$(tail -n1 <<<"$RESPONSE")
-            if [ "$CODE" = 200 ]; then
-              TOKEN=$(head -n -1 <<<"$RESPONSE" | jq -r '.access_token // empty')
-              break
-            fi
-            echo "  спроба $attempt: HTTP $CODE"
-            sleep 5
-          done
-          [ -n "$TOKEN" ] || {
-            echo "::error::не вдалося увійти після 12 спроб — див. admin_seed_* у логах auth"; exit 1; }
-          echo "увійшли з спробою $attempt"
-
-          curl -fsS -o /dev/null -w 'create asset: HTTP %{http_code}\n' \
-            -X POST http://localhost:8000/api/v1/assets \
-            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-            -d '{"name":"kind-e2e","host":"127.0.0.1"}'
-
-          FOUND=$(curl -fsS http://localhost:8000/api/v1/assets \
-            -H "Authorization: Bearer $TOKEN" | jq -r '[.[] | select(.name=="kind-e2e")] | length')
-          echo "знайдено активів kind-e2e: $FOUND"
-          [ "$FOUND" -ge 1 ] || { echo "::error::створений актив не читається назад"; exit 1; }
+          export GATEWAY_URL=http://localhost:8000
+          export FRONTEND_URL=http://localhost:3000
+          export EXPECTED_API_URL="$(kubectl -n cyberops get configmap cyberops-config -o jsonpath='{.data.API_PUBLIC_URL}')"
+          export EXPECTED_ORIGIN="http://localhost:$FRONTEND_ORIGIN"
+          export ADMIN_USER="$(secret_get ADMIN_USERNAME)"
+          export ADMIN_PASS="$(secret_get ADMIN_PASSWORD)"
+          bash scripts/smoke.sh
 
       - name: Pods
         if: always()

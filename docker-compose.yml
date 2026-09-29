@@ -50,6 +50,25 @@ x-backend-service: &backend-service
     <<: *notify-environment
 
 services:
+  # Міграції — окремий одноразовий сервіс, як Job `migrations` у k8s.
+  #
+  # До v1.15 їх у compose не було взагалі: `make migrate` виконує alembic на
+  # хості проти 127.0.0.1:5432, тож на свіжій машині (EC2 після
+  # `make up-prod`) таблиць не існувало — бекенд піднімався, /health
+  # відповідав, а система не працювала. `restart: "no"` обов'язковий:
+  # контейнер має завершитися, а не підніматися знову (див. prod-override).
+  migrations:
+    image: ${IMAGE_PREFIX:-cyberops}/cyberops-backend:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-environment
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   postgres:
     image: postgres:17-alpine
     environment:
@@ -110,6 +129,12 @@ services:
       retries: 5
       start_period: 10s
     depends_on:
+      # Таблиці мають бути до старту сервісу, а не «колись по ходу»:
+      # інакше сид адміністратора падає на відсутній таблиці, а /health
+      # при цьому зелений. `service_completed_successfully`, а не
+      # `service_started`: міграції, що впали, мають зупинити стенд.
+      migrations:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -132,6 +157,12 @@ services:
       retries: 5
       start_period: 10s
     depends_on:
+      # Таблиці мають бути до старту сервісу, а не «колись по ходу»:
+      # інакше сид адміністратора падає на відсутній таблиці, а /health
+      # при цьому зелений. `service_completed_successfully`, а не
+      # `service_started`: міграції, що впали, мають зупинити стенд.
+      migrations:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -200,6 +231,12 @@ services:
       OTLP_ENDPOINT: ${OTLP_ENDPOINT_INTERNAL:-http://jaeger:4318/v1/traces}
       <<: *notify-environment
     depends_on:
+      # Таблиці мають бути до старту сервісу, а не «колись по ходу»:
+      # інакше сид адміністратора падає на відсутній таблиці, а /health
+      # при цьому зелений. `service_completed_successfully`, а не
+      # `service_started`: міграції, що впали, мають зупинити стенд.
+      migrations:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

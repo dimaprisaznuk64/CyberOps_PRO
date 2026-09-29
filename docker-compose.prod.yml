@@ -31,6 +31,16 @@ x-prod-defaults: &prod-defaults
       max-file: "3"
 
 services:
+  migrations:
+    <<: *prod-defaults
+    # Виняток із `unless-stopped` для цього сервісу свідомий: контейнер
+    # одноразовий і має завершитися. З `unless-stopped` compose піднімав
+    # б його знову й знову, тож у логах — нескінченний цикл «міграції
+    # виконані», а `docker compose ps` показує сервіс, який ніколи не буває
+    # здоровим. Успішність перевіряє compose через
+    # `service_completed_successfully` у depends_on.
+    restart: "no"
+
   postgres:
     <<: *prod-defaults
     environment:

@@ -181,11 +181,43 @@ def test_k8s_cors_allows_the_frontend_origin() -> None:
 
 def test_prod_override_restarts_containers_and_bounds_logs() -> None:
     services = _load(PROD_OVERRIDE)["services"]
-    # Кожен сервіс має restart+logging: на EC2 після ребуту стек має
-    # піднятися сам, а json-file без ліміту з'їдає диск і кладе весь compose.
+    # Кожен довгоживучий сервіс має restart+logging: на EC2 після ребуту стек
+    # має піднятися сам, а json-file без ліміту з'їдає диск і кладе весь
+    # compose.
     for name, service in services.items():
-        assert service["restart"] == "unless-stopped", f"{name}: без restart policy"
         assert service["logging"]["options"]["max-size"], f"{name}: логи без ліміту"
+        if name == "migrations":
+            continue
+        assert service["restart"] == "unless-stopped", f"{name}: без restart policy"
+
+
+def test_migrations_are_a_one_shot_service_that_gates_the_others() -> None:
+    """Міграції мають бути одноразовим сервісом, до якого йдуть решта.
+
+    Регресія, знайдена на prod: у compose не було міграцій узагалі —
+    `make migrate` виконує alembic на хості, а на свіжій машині після
+    `make up-prod` таблиць не існувало. Бекенд піднімався, /health відповідав
+    «ok», а система не працювала (і сид адміна падав на відсутній таблиці).
+
+    Три речі мають бути одночасно, інакше одна з них знову зламається:
+      * сервіс існує і виконує `alembic upgrade head`;
+      * core/auth/worker чекають на `service_completed_successfully`
+        (service_started пропустив би стенд із падінням міграцій);
+      * `restart: "no"` — інакше prod-override з unless-stopped піднімає
+        завершений контейнер по колу.
+    """
+    base = _load(COMPOSE)["services"]
+    migrations = base["migrations"]
+    assert migrations["command"] == ["alembic", "upgrade", "head"]
+    assert migrations["restart"] == "no"
+    assert (migrations["depends_on"]["postgres"]["condition"]) == "service_healthy"
+
+    for name in ("core", "auth", "worker"):
+        condition = (base[name]["depends_on"].get("migrations") or {}).get("condition")
+        assert condition == "service_completed_successfully", (
+            f"{name} не чекає на міграції: {condition!r}"
+        )
+    assert _load(PROD_OVERRIDE)["services"]["migrations"]["restart"] == "no"
 
 
 def test_prod_override_does_not_publish_extra_ports() -> None:

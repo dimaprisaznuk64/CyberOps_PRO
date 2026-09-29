@@ -1,0 +1,67 @@
+name: Prod E2E
+
+# Compose-prod — це те, що реально розгортають на EC2, і до v1.15 воно
+# проходило лише статичну перевірку `docker compose config -q`. Тобто
+# синтаксис був правильний, а чи можна цим стендом скористатися — невідомо.
+# Саме так знайшлися баги v1.7 і v1.14: виглядає працездатно, бо ніхто
+# не перевіряв результат.
+#
+# Ключова особливість: NEXT_PUBLIC_API_URL свідомо НЕ localhost, а недосяжна
+# адреса з TEST-NET-3 (203.0.113.0/24, зарезервований RFC 5737 і не
+# маршрутизований). Так тест доводить головне: адреса приходить у рантаймі
+# з контейнера, а не з бандлу. Якби вона була вшита під час збірки, ми
+# побачили б або старий localhost, або справжню помилку — обидві провалили б
+# крок, а не пройшли його.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  prod-stack:
+    runs-on: ubuntu-latest
+    env:
+      # Не localhost: перевіряємо саме здатність обслуговувати публічну адресу.
+      NEXT_PUBLIC_API_URL: http://203.0.113.10:8000
+      CORS_ORIGINS: http://203.0.113.10:3000
+      JWT_SECRET: ci-prod-e2e-jwt-secret-0123456789abcdef
+      POSTGRES_PASSWORD: ci-prod-e2e-postgres-pw
+      # Не «admin» і не інший шаблон: охорона з app/config.py відмовиться
+      # стартувати з таким паролем, і тест перевіряв би не той шлях.
+      ADMIN_PASSWORD: ci-prod-e2e-admin-pw
+      GRAFANA_ADMIN_PASSWORD: ci-prod-e2e-grafana-pw
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        # Без NEXT_PUBLIC_API_URL: образ має бути придатним для будь-якої
+        # адреси. Якщо збірка знову почне брати її з аргументу, тест нижче
+        # впаде на кроці runtime-конфігу.
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+
+      - name: Start prod stack
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait --wait-timeout 300
+
+      - name: Smoke test
+        run: |
+          export GATEWAY_URL=http://localhost:8000
+          export FRONTEND_URL=http://localhost:3000
+          export EXPECTED_API_URL="$NEXT_PUBLIC_API_URL"
+          export EXPECTED_ORIGIN="$CORS_ORIGINS"
+          export ADMIN_USER=admin
+          export ADMIN_PASS="$ADMIN_PASSWORD"
+          export SMOKE_ASSET_NAME=prod-e2e
+          bash scripts/smoke.sh
+
+      # Діагностика — до `down`, щоб логи не зникли. На kind це дало весь
+      # v1.13: без логів наступна сесія вгадувала б причину.
+      - name: Diagnostics
+        if: always()
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=60 core auth gateway frontend worker 2>&1 || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml down -v

@@ -71,6 +71,11 @@ jobs:
           context: ./frontend
           file: frontend/Dockerfile
           push: true
-          build-args: |
-            NEXT_PUBLIC_API_URL=http://localhost:8000
+          # Без NEXT_PUBLIC_API_URL свідомо: NEXT_PUBLIC_* вписується в
+          # бандл назавжди, тож опублікований образ був би прив'язаний до
+          # адреси, під якою його зібрали (тут — localhost:8000). Хтось,
+          # хто візьме цей образ для свого стенду, отримає UI, який ходить
+          # у localhost свого браузера — рівно той баг, що коштував v1.7
+          # і v1.14. Адреса приходить у рантаймі через /runtime-config.js,
+          # тож образ не прив'язаний до жодної.
           tags: ${{ steps.img.outputs.registry }}/cyberops-frontend:${{ steps.img.outputs.tag }}
