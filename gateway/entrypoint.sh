@@ -4,7 +4,13 @@
 # перед gateway, всередині compose-мережі — http).
 set -eu
 
-set -- --host 0.0.0.0 --port "${GATEWAY_PORT:-8000}"
+# Ім'я змінної навмисно НЕ GATEWAY_PORT: kubelet сам підставляє в контейнер
+# змінні для кожного Service цього namespace, і для Service з безіменним
+# портом (gateway.yaml) ім'я виходить рівно GATEWAY_PORT зі значенням
+# tcp://<ClusterIP>:<port> — тобто не число. На kind-E2E gateway через це
+# падав у CrashLoopBackOff: uvicorn отримував --port 'tcp://10.96.49.219:8000'
+# і виходив, не піднявши сервер.
+set -- --host 0.0.0.0 --port "${GATEWAY_LISTEN_PORT:-8000}"
 
 if [ -n "${GATEWAY_TLS_CERTFILE:-}" ] && [ -n "${GATEWAY_TLS_KEYFILE:-}" ]; then
   set -- "$@" \

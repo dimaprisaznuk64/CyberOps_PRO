@@ -171,6 +171,76 @@ def test_configmap_keys_have_no_slashes() -> None:
     assert bad == {}, f"ключі ConfigMap зі слешем: {bad}"
 
 
+def _injected_service_env_names() -> dict[str, str]:
+    """Змінні, які kubelet підставляє в контейнери сам, без нашої волі.
+
+    Для кожного Service(namespace) створюються `<SERVICE>_SERVICE_HOST` і
+    `<SERVICE>_SERVICE_PORT`, а для кожного порту — `<SERVICE>_<PORTNAME>`,
+    де для безіменного порту PORTNAME = `PORT`. Значення — рядок
+    `tcp://<ClusterIP>:<port>`, а не число.
+
+    Регресія з kind-E2E: Service `gateway` має безіменний порт, тож kubelet
+    підставляв `GATEWAY_PORT=tcp://10.96.49.219:8000` — рівно те ім'я, яке
+    entrypoint.sh читав як номер порту. Uvicorn отримував не число і падав у
+    CrashLoopBackOff. Тест нижче фіксує саме цю колізію, бо вона не видима
+    ні в YAML, ні в kustomize: змінної з таким значенням у маніфестах немає.
+    """
+    names: dict[str, str] = {}
+    for filename, doc in _all_service_docs():
+        service = doc["metadata"]["name"].upper().replace("-", "_")
+        for port in doc.get("spec", {}).get("ports") or []:
+            suffix = str(port.get("name") or "PORT").upper().replace("-", "_")
+            names[f"{service}_{suffix}"] = f"{filename}: {doc['metadata']['name']}"
+    return names
+
+
+def _env_from_config() -> set[str]:
+    """Імена змінних, які код читає з оточення із власним дефолтом.
+
+    Такі змінні не приходять із ConfigMap/Secret, тож єдине, що може
+    підставити їм значення, — сам kubelet. Тому саме вони й дістають
+    колізію з іменами Service; ключі, ями явно є в маніфестах, приходять
+    із pod spec і мають пріоритет, тож їх не перевіряємо.
+    """
+    entrypoint = (ROOT / "gateway" / "entrypoint.sh").read_text(encoding="utf-8")
+    names = set(re.findall(r"\$\{([A-Z0-9_]+):-", entrypoint))
+    names |= {name.upper() for name in _settings_fields()}
+    declared = set(_load(CONFIGMAP).get("data") or {}) | set(
+        _load(SECRET).get("stringData") or {}
+    )
+    return {name for name in names if name not in declared}
+
+
+def _settings_fields() -> set[str]:
+    """Поля конфігів з власними дефолтами (gateway і backend).
+
+    Джерело істини — самі моделі, а не regex по коду: перейменування поля
+    змінює ім'я змінної, і тест має йти за ним автоматично.
+    """
+    fields: set[str] = set()
+    try:
+        from app.config import Settings
+
+        from gateway.config import GatewaySettings
+    except Exception:  # pragma: no cover - импорти недоступні поза тестовим оточенням
+        return fields
+    fields |= set(Settings.model_fields) | set(GatewaySettings.model_fields)
+    return fields
+
+
+def test_app_env_defaults_do_not_collide_with_injected_service_env() -> None:
+    """Код не має читати змінну з тим самим іменем, яке kubelet підставляє
+    для Service: інакше підміняється несподіваним `tcp://<ip>:<port>`."""
+    injected = _injected_service_env_names()
+    # Точність самого інваріанта: без цього assert тест був би зелений
+    # навіть якби ми перестали генерувати імена Service.
+    assert "GATEWAY_PORT" in injected, "очікувана колізія зникла — інваріант не діє"
+    clashes = {
+        name: injected[name] for name in _env_from_config() if name in injected
+    }
+    assert clashes == {}, f"ім'я змінної з коду збігається з іменем Service: {clashes}"
+
+
 def test_generated_configmap_keys_have_no_slashes() -> None:
     """Те саме для configMapGenerator у kustomization.yaml.
 
