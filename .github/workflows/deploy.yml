@@ -96,10 +96,27 @@ jobs:
             echo "::error::CORS не дозволяє origin фронтенду :$FRONTEND_ORIGIN"; exit 1; }
 
           echo "--- login + створення активу"
-          TOKEN=$(curl -fsS -X POST http://localhost:8000/api/v1/auth/login \
-            -H 'Content-Type: application/json' \
-            -d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" | jq -r .access_token)
-          [ -n "$TOKEN" ] && [ "$TOKEN" != null ] || { echo "::error::login не дав токена"; exit 1; }
+          # Логін повторюється: сид адміна тепер має дожитися міграцій і сам
+          # намагається кілька разів, тож одразу після kubectl wait міг би ще
+          # не встигнути. Це не приховує поломку — спроб обмежено (60 с), і
+          # наприкінці падіння все одно голосне.
+          TOKEN=""
+          for attempt in $(seq 1 12); do
+            RESPONSE=$(curl -sS -w '\n%{http_code}' -X POST \
+              http://localhost:8000/api/v1/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"username\":\"$USER\",\"password\":\"$PASS\"}" || true)
+            CODE=$(tail -n1 <<<"$RESPONSE")
+            if [ "$CODE" = 200 ]; then
+              TOKEN=$(head -n -1 <<<"$RESPONSE" | jq -r '.access_token // empty')
+              break
+            fi
+            echo "  спроба $attempt: HTTP $CODE"
+            sleep 5
+          done
+          [ -n "$TOKEN" ] || {
+            echo "::error::не вдалося увійти після 12 спроб — див. admin_seed_* у логах auth"; exit 1; }
+          echo "увійшли з спробою $attempt"
 
           curl -fsS -o /dev/null -w 'create asset: HTTP %{http_code}\n' \
             -X POST http://localhost:8000/api/v1/assets \

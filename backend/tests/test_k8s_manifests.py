@@ -466,3 +466,24 @@ def test_migrations_wait_understands_the_shipped_database_url() -> None:
     assert "postgres:5432" in result.stderr, (
         f" authority не розпізнано з {database_url!r}: {result.stderr}"
     )
+
+
+DEPLOY_WORKFLOW = ROOT / ".github" / "workflows" / "deploy.yml"
+
+
+def test_smoke_test_verifies_login_not_only_health() -> None:
+    """E2E має доводити, що в систему можна увійти, а не лише що вона відповідає.
+
+    Регресія, знайдена на kind: усі поді були Running, `/health` був зелений,
+    а адміністратора не існувало — сид падав на старті (міграції ще не
+    накачені) і більше не повторювався. Старий smoke робив один `curl /health`
+    і цю провину не бачив.
+
+    Тому перевіряємо саме наявність кроку з логіном: його легко випадково
+    видалити «на спрощення», і тоді CI знову стане зеленим на неробочій
+    системі.
+    """
+    text = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    assert "/api/v1/auth/login" in text, "у smoke-тесті немає перевірки логіну"
+    assert "Authorization: Bearer" in text, " немає авторизованого запиту після нього"
+    assert "::error::" in text, "кроки не вміють падати голосно"
