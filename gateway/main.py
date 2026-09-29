@@ -247,6 +247,20 @@ async def health(request: Request):
     )
 
 
+@app.get("/health/live")
+async def live():
+    """Liveness — «процес живий», без перевірки залежностей.
+
+    `/health` навмисно дивиться ще й на core/auth і повертає 503, коли вони
+    не готові: для readiness це правильно (трафік туди не відправляти). Але
+    якщо такий ендпойнт стоїть у livenessProbe, kubelet перезапускає
+    gateway, бо внизу не відповідає, — тобто здоровий проксі падає через
+    недоступність залежностей. На kind-E2E це і сталося: gateway падав у
+    CrashLoopBackOff, поки тривало вікно, у якому міграції ще не закінчилися.
+    """
+    return JSONResponse({"status": "ok", "checked": "self"})
+
+
 @app.get("/metrics")
 async def metrics():
     return Response(

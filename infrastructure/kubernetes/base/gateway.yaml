@@ -29,9 +29,12 @@ spec:
               port: 8000
             initialDelaySeconds: 5
             periodSeconds: 5
+          # Liveness не має залежати від core/auth (див. /health/live у
+          # gateway/main.py). Readiness лишається на /health — там 503, поки
+          # внизу не відповідають, і це правильно: трафік не відправляємо.
           livenessProbe:
             httpGet:
-              path: /health
+              path: /health/live
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 10

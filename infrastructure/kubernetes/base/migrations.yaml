@@ -8,6 +8,46 @@ spec:
   template:
     spec:
       restartPolicy: Never
+      # Job створюється разом із усім іншим маніфестом, тобто одразу після
+      # apply — а postgres на той момент ще піднімається. Раніше alembic
+      # падав на connection refused, Job повторювався (backoffLimit: 3) і
+      # succeeds на третій спробі: два з трьох спроб витрачено, а на
+      # повільному CI четвертої б не залишилося — пайплайн упав би на
+      # таймауті в "Wait migrations", без жодного зрозумілого рядка в лозі.
+      # Тут чекаємо на БД перед міграцією, а не витрачаємо на це retry.
+      initContainers:
+        - name: wait-postgres
+          image: cyberops/cyberops-backend
+          imagePullPolicy: IfNotPresent
+          # Той самий образ, що й у Job: не тягнемо додатковий (busybox/nc)
+          # і не додаємо образ, який треба було б вантажити в kind/registry.
+          command:
+            - python
+            - -c
+            - |
+              import os, socket, sys, time
+              # Хост і порт дістаємо з DATABASE_URL, а не хардкодимо: у
+              # прод-оверлеї підключення може вести на інший Service.
+              authority = os.environ["DATABASE_URL"].rsplit("@", 1)[1].split("/", 1)[0]
+              host, _, port = authority.partition(":")
+              timeout = float(os.environ.get("MIGRATIONS_WAIT_TIMEOUT", "180"))
+              deadline = time.monotonic() + timeout
+              while True:
+                  try:
+                      socket.create_connection((host, int(port)), 3).close()
+                      print(f"postgres ready: {authority}")
+                      sys.exit(0)
+                  except OSError as exc:
+                      if time.monotonic() >= deadline:
+                          sys.exit(f"postgres {authority} не готовий за {timeout}s: {exc}")
+                      print(f"чекаємо postgres ({exc})", flush=True)
+                      time.sleep(2)
+          envFrom:
+            - configMapRef:
+                name: cyberops-config
+            # DATABASE_URL живе у Secret — без secretRef чекати нема чого.
+            - secretRef:
+                name: cyberops-secrets
       containers:
         - name: migrate
           image: cyberops/cyberops-backend

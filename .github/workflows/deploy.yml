@@ -57,3 +57,23 @@ jobs:
       - name: Pods
         if: always()
         run: kubectl -n cyberops get pods -o wide
+
+      # Діагностика падінь. Без неї крок вище показує лише симптом
+      # (ImagePullBackOff / CrashLoopBackOff) і не пояснює його: логи контейнера
+      # живуть у кластері, а не в лозі запуску, тож наступна сесія знову
+      # вгадує причину. Крок коштує нічого — кластер уже видалено після нього.
+      - name: Diagnostics
+        if: always()
+        run: |
+          echo "=== events ==="
+          kubectl -n cyberops get events --sort-by=.lastTimestamp | tail -40
+          echo
+          for p in $(kubectl -n cyberops get pods -o name); do
+            echo "=== $p: describe ==="
+            kubectl -n cyberops describe "$p" | sed -n '/^Events:/,$p'
+            echo "=== $p: logs (previous) ==="
+            kubectl -n cyberops logs "$p" --previous --tail=60 2>&1 || true
+            echo "=== $p: logs (current) ==="
+            kubectl -n cyberops logs "$p" --tail=40 2>&1 || true
+            echo
+          done

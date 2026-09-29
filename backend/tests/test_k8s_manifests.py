@@ -9,7 +9,11 @@ Secret, а якийсь контейнер забув підключити Secre
 
 from __future__ import annotations
 
+import os
 import re
+import socket
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -214,3 +218,154 @@ def test_base_manifests_stay_in_production_mode() -> None:
     """Base — це основа для прод-оверлея, тож APP_ENV=prod. Якщо змінити на
     dev, охорона не спрацює ніде: реальні деплої беруть саме base."""
     assert _app_env_of(None) == "prod"
+
+
+# Образи, які збираємо самі (docker compose build -> kind load). Їх немає в
+# жодному registry, тож kubelet не має намагатися їх тягнути.
+LOCAL_IMAGES = (
+    "cyberops/cyberops-backend",
+    "cyberops/cyberops-worker",
+    "cyberops/cyberops-gateway",
+    "cyberops/cyberops-frontend",
+)
+
+
+def _image_of(container: dict[str, Any]) -> str:
+    return str(container.get("image", "")).split(":", 1)[0]
+
+
+def _is_local_image(image: str) -> bool:
+    return any(image.startswith(prefix) for prefix in LOCAL_IMAGES)
+
+
+def test_local_images_are_not_pulled_by_default() -> None:
+    """Регресія з kind-E2E: frontend був у ImagePullBackOff.
+
+    Образ `cyberops/cyberops-frontend` записаний без тега, тобто це `:latest`.
+    Для `:latest` kubelet за замовчуванням ставить `imagePullPolicy: Always` і
+    йде в registry за образом, якого там немає. Решта наших деплойів мали
+    `IfNotPresent` явно, тож падав лише frontend — і `kubectl kustomize` це
+    пропускає: pull-policy він не перевіряє взагалі.
+    """
+    offenders: dict[str, Any] = {}
+    for path in sorted(BASE.glob("*.yaml")):
+        for doc in _documents(path):
+            spec = doc.get("spec", {})
+            template = spec.get("template", spec)
+            for kind in ("containers", "initContainers"):
+                for container in (template.get("spec") or {}).get(kind) or []:
+                    image = _image_of(container)
+                    policy = container.get("imagePullPolicy")
+                    if _is_local_image(image) and policy != "IfNotPresent":
+                        offenders[f"{path.name}/{doc['metadata']['name']}/{kind}"] = image
+    assert offenders == {}, f"свої образи без imagePullPolicy: IfNotPresent: {offenders}"
+
+
+def test_gateway_liveness_does_not_depend_on_upstreams() -> None:
+    """LivenessProbe не має вимірювати здоров'я залежностей.
+
+    Регресія з kind-E2E: gateway падав у CrashLoopBackOff. Його `/health`
+    перевіряє ще й core/auth і повертає 503, коли вони не готові — правильно
+    для readiness, але не для liveness: kubelet убиває здоровий проксі, бо
+    внизу не відповідають. Liveness дивиться лише на себе (`/health/live`).
+    """
+    gateway = _find_workload(BASE / "gateway.yaml", "gateway")
+    containers = _containers(gateway)
+    assert containers, "gateway без контейнерів"
+    container = containers[0]
+    liveness = ((container.get("livenessProbe") or {}).get("httpGet") or {}).get("path")
+    readiness = ((container.get("readinessProbe") or {}).get("httpGet") or {}).get("path")
+    assert liveness, "у gateway немає livenessProbe"
+    assert liveness != "/health", (
+        "livenessProbe на /health зробить gateway залежним від core/auth: "
+        "їхня недоступність перезапускатиме проксі (див. /health/live)"
+    )
+    assert readiness == "/health", "readinessProbe має лишатись на агрегованому /health"
+    # Шлях livenessProbe мусить бути реальним маршрутом: інакше probe дістає
+    # 404 і kubelet перезапускає контейнер нескінченно — знову CrashLoop, уже
+    # з іншої причини, яку тест вище не побачить.
+    source = (ROOT / "gateway" / "main.py").read_text(encoding="utf-8")
+    assert f'get("{liveness}")' in source, f"маршруту {liveness} немає в gateway/main.py"
+
+
+def test_migrations_wait_for_the_database_before_migrating() -> None:
+    """Job міграцій мусить дочекатися postgres, а не витрачати на це retry.
+
+    Регресія з kind-E2E: Job падав двічі на connection refused і succeeds на
+    третій спробі — backoffLimit: 3 витрачено майже весь. На повільнішому
+    CI четвертої спроби не було б, і пайплайн зупинився б на таймауті
+    "Wait migrations" без зрозумілої помилки. InitContainer чекає на БД, тож
+    перша спроба — робоча.
+    """
+    migrations = _find_workload(BASE / "migrations.yaml", "migrations")
+    spec = migrations.get("spec", {}).get("template", {}).get("spec", {})
+    init_containers = spec.get("initContainers") or []
+    assert init_containers, "у Job немає initContainer, який чекає на БД"
+    waits = [c for c in init_containers if "postgres" in " ".join(map(str, c.get("command") or []))]
+    assert waits, f"жоден initContainer не чекає на postgres: {init_containers}"
+    # Чекати нема на що без DATABASE_URL — він у Secret.
+    refs = [
+        source["secretRef"]["name"]
+        for container in init_containers
+        for source in container.get("envFrom") or []
+        if "secretRef" in source
+    ]
+    assert "cyberops-secrets" in refs, f"initContainer без Secret: {refs}"
+
+
+def _wait_script() -> str:
+    """Python із initContainer, який чекає на БД."""
+    migrations = _find_workload(BASE / "migrations.yaml", "migrations")
+    init_containers = migrations["spec"]["template"]["spec"].get("initContainers") or []
+    for container in init_containers:
+        command = [str(part) for part in container.get("command") or []]
+        if "-c" in command:
+            return command[command.index("-c") + 1]
+    raise AssertionError("жоден initContainer не запускає python -c")
+
+
+def _run_wait_script(database_url: str, timeout: str = "1") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-c", _wait_script()],
+        env={**os.environ, "DATABASE_URL": database_url, "MIGRATIONS_WAIT_TIMEOUT": timeout},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_migrations_wait_succeeds_once_the_database_accepts_connections() -> None:
+    """Скрипт чекання має завершуватися 0, щоб Job перейшов до alembic."""
+    with socket.socket() as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        result = _run_wait_script(f"postgresql+asyncpg://u:p@127.0.0.1:{port}/cyberops")
+    assert result.returncode == 0, f"чекання впало на готовій БД: {result.stderr}"
+    assert "ready" in result.stdout
+
+
+def test_migrations_wait_fails_loudly_when_the_database_is_absent() -> None:
+    """Чекати вічно не можна: Job мусить впасти зрозумілим рядком, а не
+    мовчки висити до backoffLimit."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        closed_port = probe.getsockname()[1]
+    result = _run_wait_script(f"postgresql+asyncpg://u:p@127.0.0.1:{closed_port}/cyberops")
+    assert result.returncode != 0, "чекання без БД мало б впасти"
+    assert str(closed_port) in result.stderr, f"у помилці немає адреси БД: {result.stderr}"
+
+
+def test_migrations_wait_understands_the_shipped_database_url() -> None:
+    """Скрипт має розуміти той DATABASE_URL, який ми реально постачаємо.
+
+    Розбір рядка — єдине місце, де тихо зламатись: якщо authority не
+    витягнеться, скрипт не зможе підключитися й мовчки витратить увесь
+    timeout на кожен деплой. Тому проганяємо його на значенні з secret.yaml.
+    """
+    database_url = (_load(SECRET).get("stringData") or {})["DATABASE_URL"]
+    result = _run_wait_script(database_url)
+    assert result.returncode != 0, "хост postgres має бути недоступним у тестах"
+    assert "postgres:5432" in result.stderr, (
+        f" authority не розпізнано з {database_url!r}: {result.stderr}"
+    )

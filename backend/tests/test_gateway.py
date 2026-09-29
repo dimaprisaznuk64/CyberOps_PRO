@@ -73,6 +73,21 @@ async def test_gateway_health_aggregates_services(client):
     assert body["services"] == {"auth": "ok", "core": "ok"}
 
 
+async def test_gateway_liveness_does_not_check_upstreams(client):
+    """Liveness не має залежати від core/auth.
+
+    `/health` перевіряє залежності й повертає 503, коли вони не готові — це
+    правильно для readiness, але не для liveness: kubelet убив би здоровий
+    проксі. Регресія з kind-E2E: gateway падав у CrashLoopBackOff, поки не
+    завершилися міграції (див. livenessProbe у infrastructure/kubernetes).
+    """
+    resp = await client.get("/health/live")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["checked"] == "self"
+    assert "services" not in body, "liveness не має ходити в залежності"
+
+
 async def test_gateway_metrics(client):
     resp = await client.get("/metrics")
     assert resp.status_code == 200
