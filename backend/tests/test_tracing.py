@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
+
 import pytest
 from app.config import settings
 from app.services import tracing
@@ -120,3 +123,67 @@ async def test_scrape_endpoints_are_not_traced(memory_exporter):
     assert any("ping" in name for name in names), names
     assert not any("metrics" in name for name in names), names
     assert not any("health" in name for name in names), names
+
+
+async def _lifespan_cycle(app, between) -> None:
+    """Проводить застосунок через справжній цикл lifespan.
+
+    startup -> between() -> shutdown. Нуково, бо саме тут визначається
+    порядок: стек middleware будується на першому ASGI-виклику, а ми
+    хочемо перевірити інструментування саме всередині lifespan.
+    """
+    to_app: asyncio.Queue = asyncio.Queue()
+    startup_done = asyncio.Event()
+
+    async def receive():
+        return await to_app.get()
+
+    async def send(message):
+        if message["type"] == "lifespan.startup.complete":
+            startup_done.set()
+
+    task = asyncio.create_task(
+        app({"type": "lifespan", "asgi": {"version": "3.0"}}, receive, send)
+    )
+    await to_app.put({"type": "lifespan.startup"})
+    await asyncio.wait_for(startup_done.wait(), timeout=5)
+    await between()
+    await to_app.put({"type": "lifespan.shutdown"})
+    await asyncio.wait_for(task, timeout=5)
+
+
+async def test_tracing_still_works_when_setup_runs_in_lifespan(memory_exporter):
+    """Регресія: інструментувати додаток усередині lifespan надто пізно.
+
+    Starlette будує стек middleware на першому ASGI-виклику, тобто ДО
+    lifespan, а instrument_app() лише підміняє build_middleware_stack, не
+    викликаючи її. Старій код мовчки інаструментував застосунок у занадто
+    пізній момент: сервіс працював, а з нього не йшов жоден спан — Jaeger
+    бачив лише gateway, який інструментує не через FastAPI.
+    """
+    provider = init_tracing(exporter=memory_exporter)
+    assert provider is not None
+
+    @asynccontextmanager
+    async def lifespan(app):
+        setup_tracing(app)
+        yield
+
+    app = FastAPI(lifespan=lifespan)
+
+    @app.get("/ping")
+    async def ping():
+        return {"pong": True}
+
+    async def call_ping():
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            resp = await ac.get("/ping")
+        assert resp.status_code == 200
+
+    await _lifespan_cycle(app, call_ping)
+
+    provider.force_flush()
+    names = [s.name for s in memory_exporter.get_finished_spans()]
+    assert any("ping" in name for name in names), names

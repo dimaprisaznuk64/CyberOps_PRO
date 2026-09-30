@@ -77,6 +77,15 @@ def setup_tracing(app: Any) -> Any | None:
     FastAPIInstrumentor.instrument_app(
         app, tracer_provider=provider, excluded_urls=_NOISY_URLS
     )
+
+    # instrument_app() лише ПІДМІНЯЄ build_middleware_stack, але сам її не
+    # викликає, а Starlette будує стек на першому ASGI-виклику — тобто ще
+    # до lifespan. Виклик setup_tracing() усередині lifespan (у нас так і
+    # було) тому пізніший за стек, і повторно його вже ніхто не збере:
+    # middleware не потрапляє в ланцюг, автотрек Requests мовчить, а жодного
+    # винятку не видно. Перебудовуємо стек, якщо він уже існує.
+    if getattr(app, "middleware_stack", None) is not None:
+        app.middleware_stack = app.build_middleware_stack()
     return provider
 
 
