@@ -18,6 +18,14 @@ spec:
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
+          # Jaeger групує спани за service.name. Gateway єдиний сервіс, який
+          # не оголошував TRACING_SERVICE_NAME й покладався на дефолт
+          # "gateway" з gateway/config.py — збіг із іменем Deployment, а не
+          # намір. Той самий клас, що APP_ENV=production у v1.13: поки що
+          # виглядало правильно, бо значення збігалося.
+          env:
+            - name: TRACING_SERVICE_NAME
+              value: gateway
           envFrom:
             - configMapRef:
                 name: cyberops-config

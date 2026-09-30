@@ -304,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 240 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 241 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy (поки `continue-on-error`), Semgrep `p/ci` — лише якщо задано `SEMGREP_APP_TOKEN` |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -323,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 240 тестів
+python -m pytest tests -q                 # 241 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -394,15 +394,25 @@ kubectl -n cyberops port-forward svc/gateway 8000:8000
 доводить головне: адреса приходить з контейнера, а не з бандлу. Якби збірка
 знову почала брати її з аргументу, крок впав би тут, а не на проді.
 
-Запустити той самий скрипт локально (після `docker compose up -d`):
+Запустити той самий скрипт локально (після `docker compose up -d`). Імена
+сервісів у Jaeger **не пишемо вручну** — читаємо з живих контейнерів, як це
+роблять воркфлоу: Jaeger групує спани за `service.name`, і константа тут була
+б зеленою рівно тоді, коли сервіс перейменовано:
 
 ```bash
+TRACE_SERVICES=""
+for s in gateway core auth; do
+  name=$(docker compose -f docker-compose.yml exec -T "$s" printenv TRACING_SERVICE_NAME)
+  [ -n "$name" ] || { echo "$s без TRACING_SERVICE_NAME"; exit 1; }
+  TRACE_SERVICES="$TRACE_SERVICES $name"
+done
+
 GATEWAY_URL=http://localhost:8000 FRONTEND_URL=http://localhost:3000 \
 EXPECTED_API_URL=http://localhost:8000 EXPECTED_ORIGIN=http://localhost:3000 \
 ADMIN_USER=admin ADMIN_PASS=... \
 PROMETHEUS_URL=http://localhost:9090 JAEGER_URL=http://localhost:16686 \
 GRAFANA_URL=http://localhost:3001 GRAFANA_USER=admin GRAFANA_PASS=... \
-EXPECTED_TRACE_SERVICES="gateway core auth" \
+EXPECTED_TRACE_SERVICES="${TRACE_SERVICES# }" \
 bash scripts/smoke.sh
 ```
 

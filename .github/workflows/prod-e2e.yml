@@ -61,7 +61,25 @@ jobs:
           export GRAFANA_URL=http://localhost:3001
           export GRAFANA_USER=admin
           export GRAFANA_PASS="$GRAFANA_ADMIN_PASSWORD"
-          export EXPECTED_TRACE_SERVICES="gateway core auth"
+          # Імена сервісів у Jaeger не хардкодимо: Jaeger групує спани за
+          # Resource.service.name, тобто за TRACING_SERVICE_NAME, і хардкод
+          # був би тим самим класом, що APP_ENV=production у v1.13. Тут ще
+          # сильніше: беремо з ЖИВОГО контейнера, тож тест бачить те, що
+          # експортується насправді, а не те, що написано в compose-файлі.
+          # Немає змінної — падаємо: дефолт "core" з config.py злив би цей
+          # сервіс із реальним core у Jaeger.
+          TRACE_SERVICES=""
+          for s in gateway core auth; do
+            name=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              exec -T "$s" printenv TRACING_SERVICE_NAME 2>/dev/null || true)
+            if [ -z "$name" ]; then
+              echo "::error::контейнер $s не має TRACING_SERVICE_NAME — спани підуть під дефолтом 'core' і злипнуться з ним у Jaeger"
+              exit 1
+            fi
+            TRACE_SERVICES="$TRACE_SERVICES $name"
+          done
+          export EXPECTED_TRACE_SERVICES="${TRACE_SERVICES# }"
+          echo "очікувані сервіси в Jaeger (з живого контейнера): $EXPECTED_TRACE_SERVICES"
           bash scripts/smoke.sh
 
       # Діагностика — до `down`, щоб логи не зникли. На kind це дало весь

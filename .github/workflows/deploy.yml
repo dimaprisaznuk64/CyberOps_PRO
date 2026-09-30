@@ -102,7 +102,28 @@ jobs:
           fi
           # Ці три сервіси справді проходять запитами вище (через gateway ->
           # core/auth), тож їхні спани мають дійти до Jaeger.
-          export EXPECTED_TRACE_SERVICES="gateway core auth"
+          #
+          # Імена НЕ хардкодимо: Jaeger групує спани за Resource.service.name,
+          # тобто за TRACING_SERVICE_NAME. Хардкод був би тим самим класом,
+          # що APP_ENV=production у v1.13: перевірка зелена рівно тоді, коли
+          # сервіс перейменовано, і мовчить про справжню причину. Тому беремо
+          # значення з розгорнутого Deployment.
+          #
+          # Окремо падаємо, якщо змінної немає: тоді сервіс тихо пише спани
+          # під дефолтом "core" з config.py, і Jaeger зливає його з реальним
+          # core — дві різні послуги виглядають як одна, а перевірка мовчить.
+          TRACE_SERVICES=""
+          for svc in gateway core auth; do
+            name=$(kubectl -n cyberops get "deploy/$svc" \
+              -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="TRACING_SERVICE_NAME")].value}')
+            if [ -z "$name" ]; then
+              echo "::error::deploy/$svc не оголошує TRACING_SERVICE_NAME — спани підуть під дефолтом 'core' і злипнуться з ним у Jaeger"
+              exit 1
+            fi
+            TRACE_SERVICES="$TRACE_SERVICES $name"
+          done
+          export EXPECTED_TRACE_SERVICES="${TRACE_SERVICES# }"
+          echo "очікувані сервіси в Jaeger (з розгорнутого Deployment): $EXPECTED_TRACE_SERVICES"
           bash scripts/smoke.sh
 
       - name: Pods

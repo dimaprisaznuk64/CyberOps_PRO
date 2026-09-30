@@ -77,6 +77,49 @@ def _find_workload(path: Path, name: str) -> dict[str, Any]:
     raise AssertionError(f"{name}: не знайдено в {path.name}")
 
 
+TRACED_SERVICES = ("core", "auth", "worker", "gateway")
+
+
+def test_every_traced_service_declares_its_own_tracing_name() -> None:
+    """Кожен сервіс мусить явно оголосити TRACING_SERVICE_NAME, інакше береться
+    дефолт "core" з config.py.
+
+    Заховане наслідок: якщо `auth` забуде змінну, він писатиме спани під
+    "core" — тобто Jaeger зливає дві різні послуги в одну. Виглядає це
+    безневинно (більше спанів у правильному сервісі), але перевірка E2E
+    перестає бачити справжню картину: помилка в auth ховається в те,
+    що core healthy, а збіг імен у Jaeger не видно.
+
+    Тому вимагаємо і присутності змінної, і попарної унікальності значень.
+    `migrations` свідомо не в списку: це одноразовий Alembic, трасування
+    йому не потрібне.
+    """
+    declared: dict[str, str | None] = {}
+    for name in TRACED_SERVICES:
+        doc = _find_workload(BASE / f"{name}.yaml", name)
+        value = None
+        for container in _containers(doc):
+            for entry in container.get("env") or []:
+                if entry.get("name") == "TRACING_SERVICE_NAME":
+                    value = entry.get("value")
+        declared[name] = value
+
+    missing = {n: v for n, v in declared.items() if not v}
+    assert missing == {}, (
+        f"сервіси без TRACING_SERVICE_NAME: {sorted(missing)} — візьмуть дефолт "
+        "'core' із config.py і злипнуться з реальним core у Jaeger"
+    )
+
+    by_value: dict[str, list[str]] = {}
+    for name, value in declared.items():
+        by_value.setdefault(value or "", []).append(name)
+    collisions = {v: ns for v, ns in by_value.items() if len(ns) > 1}
+    assert collisions == {}, (
+        f"одне й те саме TRACING_SERVICE_NAME у {collisions} — Jaeger зливає "
+        "їх в один сервіс, і перевірка перестає їх розрізняти"
+    )
+
+
 def test_app_workloads_import_the_secret() -> None:
     """Без secretRef контейнер не бачить DATABASE_URL — і бере дефолт із
     config.py, тобто рядок на localhost, і падає з connection refused."""
