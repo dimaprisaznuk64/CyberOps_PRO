@@ -68,7 +68,7 @@ jobs:
           FE_PID=$!
           kubectl -n cyberops port-forward svc/prometheus 9090:9090 &
           PROM_PID=$!
-          kubectl -n cyberops port-forward svc/jaeger 16686:16686 &
+          kubectl -n cyberops port-forward svc/jaeger-ui 16686:16686 &
           JAEGER_PID=$!
           kubectl -n cyberops port-forward svc/grafana 3001:3000 &
           GRAFANA_PID=$!

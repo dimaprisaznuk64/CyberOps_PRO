@@ -247,7 +247,8 @@ infrastructure/kubernetes/
   kubelet перезапускав здоровий проксі через затримку внизу. Додано
   `/health/live` («процес живий», без залежностей) і перевів liveness на нього.
 - Gateway — `NodePort 30080`, Grafana — `NodePort 30300`, frontend — `NodePort 30010`,
-  Jaeger UI — `NodePort 30086`.
+  Jaeger UI — `NodePort 30086` (окремий Service `jaeger-ui`; сам `jaeger` лишається
+  ClusterIP, бо OTLP і admin-порт споживаються всередині кластера).
 - Prometheus scrape-таргети через DNS: `gateway:8000`, `core:8001`,
   `auth:8002`, `worker:9091`, `jaeger:14269`.
 - Імена змінних, які **kubelet підставляє сам** (`<SERVICE>_SERVICE_HOST`,
@@ -303,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 239 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 240 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy (поки `continue-on-error`), Semgrep `p/ci` — лише якщо задано `SEMGREP_APP_TOKEN` |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -322,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 239 тестів
+python -m pytest tests -q                 # 240 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -865,7 +866,9 @@ docker compose --profile mail up -d
 - **OpenTelemetry → Jaeger** (v1.2) — `TRACING_ENABLED=true` + `OTLP_ENDPOINT`
   підключає OTLP/HTTP-експортер; у compose Jaeger вже у стеку, тому
   `OTLP_ENDPOINT` перекривається на `http://jaeger:4318/v1/traces`.
-  UI — `http://localhost:16686`, у k8s — `NodePort 30086`.
+  UI — `http://localhost:16686`, у k8s — `NodePort 30086` (`svc/jaeger-ui`).
+  `/metrics` Jaeger віддає на admin-порту 14269, який Prometheus скрейпить
+  всередині кластера через ClusterIP-сервіс `jaeger`, тож ззовні не виставлений.
    | Сервіс | `TRACING_SERVICE_NAME` | Що видно у Jaeger |
    |---|---|---|
    | `gateway` | `gateway` | кожен запит + **клієнтський спан на виклик до core/auth** |

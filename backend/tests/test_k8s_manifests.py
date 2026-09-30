@@ -34,6 +34,20 @@ APP_WORKLOADS = ("core", "auth", "worker", "gateway", "migrations")
 # CORS_ORIGINS="*" вимикає перевірку origin повністю.
 SECRET_ONLY_KEYS = ("DATABASE_URL", "CORS_ORIGINS")
 
+# Порти, які справді мають бути видні ззовні: Service -> {порт: nodePort}.
+#
+# В Kubernetes експозиція задається на рівні Service, а не окремого порту: щойно
+# Service має type: NodePort, КОЖЕН його порт опиняється на IP кожного нода.
+# Тому "додав порт для внутрішнього споживача" у вже-NodePort-Service означає
+# "відкрив його назовні" — і якщо nodePort не задано вручну, apiserver бере
+# випадковий, якого ніхто не записує ні в документацію, ні в правила firewall.
+PUBLIC_NODEPORTS: dict[str, dict[int, int]] = {
+    "frontend": {3000: 30010},
+    "gateway": {8000: 30080},
+    "grafana": {3000: 30300},
+    "jaeger-ui": {16686: 30086},
+}
+
 
 def _load(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -149,6 +163,37 @@ def test_services_with_nodeport_declare_the_nodeport_type() -> None:
         if port.get("nodePort") is not None and doc.get("spec", {}).get("type") != "NodePort"
     }
     assert offenders == {}, f"nodePort без type: NodePort: {offenders}"
+
+
+def test_nodeport_services_expose_only_intentionally_public_ports() -> None:
+    """Набір відкритих назовні портів має бути рівно таким, як ми вирішили.
+
+    Регресія: щоб Prometheus достукався до `/metrics` Jaeger, admin-порт 14269
+    додали у Service `jaeger`, який уже був `type: NodePort` заради UI. Тип
+    Service діє на всі порти, тож 14269 пішов назовні — на випадковий
+    nodePort, бо явного не задали. Метрики та керування колектором стали б
+    доступні з інтернету, і ніде — у diff'і, у kustomize, у smoke-тесті —
+    цього не видно: таргет Prometheus після цього навпаки перейшов у `up`.
+
+    Тому інваріант фіксує не тільки відсутність зайвих портів, а й самі
+    значення nodePort: вони є в README, terraform і правилах SG, тож
+    розходження з ними теж небажане. Якщо порт справді потрібен ззовні —
+    додати його сюди й у документацію, а не мовчки в Service.
+    """
+    declared: dict[str, dict[int, int | None]] = {}
+    for _filename, doc in _all_service_docs():
+        spec = doc.get("spec", {})
+        if spec.get("type") != "NodePort":
+            continue
+        declared[doc["metadata"]["name"]] = {
+            port["port"]: port.get("nodePort") for port in spec.get("ports") or []
+        }
+
+    assert declared == PUBLIC_NODEPORTS, (
+        "Змінився набір портів, відкритих назовні. Експозиція діє на весь "
+        f"Service, а не на порт. Очікувалося {PUBLIC_NODEPORTS}, "
+        f"у маніфестах {declared}."
+    )
 
 
 def test_configmap_keys_have_no_slashes() -> None:

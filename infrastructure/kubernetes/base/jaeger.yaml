@@ -41,24 +41,43 @@ kind: Service
 metadata:
   name: jaeger
 spec:
-  # nodePort можливий лише для NodePort. Без цього рядка Service лишається
-  # ClusterIP (дефолт), і apiserver відхиляє маніфест цілком:
-  # "spec.ports[1].nodePort: Forbidden: may not be used when `type` is
-  # 'ClusterIP'" — тобто не застосується навіть решта Service.
-  type: NodePort
+  # ClusterIP навмисно: OTLP і admin-порт споживаються всередині кластера
+  # (сервіси шлють спани, Prometheus скрейпить). Тип Service задає
+  # експозицію для ВСІХ його портів, тож в одному Service з NodePort порт
+  # для Prometheus виявився б на IP кожного нода — випадковий, бо
+  # nodePort не задано, і ніхто б про це не дізнався.
+  type: ClusterIP
   selector:
     app: jaeger
   ports:
     - name: otlp-http
       port: 4318
       targetPort: 4318
-    - name: ui
-      port: 16686
-      targetPort: 16686
-      nodePort: 30086
     # Prometheus ходить на 14269 (admin /metrics). Service мусить його
     # експортувати: Prometheus скрейпить Service-адресу, а не Pod IP, тож
     # неоголошений порт недоступний, і таргет лишається DOWN.
     - name: admin
       port: 14269
       targetPort: 14269
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-ui
+spec:
+  # nodePort можливий лише для NodePort. Без цього рядка Service лишається
+  # ClusterIP (дефолт), і apiserver відхиляє маніфест цілком:
+  # "spec.ports[1].nodePort: Forbidden: may not be used when `type` is
+  # 'ClusterIP'" — тобто не застосується навіть решта Service.
+  #
+  # Окремий Service, а не ще один порт у jaeger: експозиція задається на
+  # рівні Service, тож додавання UI-порту з NodePort витягло б назовні
+  # й admin-порт теж. Тут лише те, що справді має бути видно ззовні.
+  type: NodePort
+  selector:
+    app: jaeger
+  ports:
+    - name: ui
+      port: 16686
+      targetPort: 16686
+      nodePort: 30086
