@@ -87,11 +87,18 @@ jobs:
           version: v0.70.0
 
       - name: Trivy scan
-        # поки non-blocking: базовий результат ще не підтверджено на CI-образі,
-        # після першого зеленого прогону прибрати continue-on-error
-        continue-on-error: true
+        # Раніше крок був continue-on-error, і це ховало не «поки що
+        # нереалістично», а поломку: `--pkg-types python` у v0.70.0 не
+        # існує (допустимі лише os|library), тож trivy падав із
+        # "flag error: invalid argument [python]" і сканування не відбулося
+        # НІ РАЗУ — від самого додавання кроку. Job був зелений, CVE
+        # не перевірялися.
+        #
+        # `library` — мовні пакети (pip/npm), на відміну від `os`. Тут
+        # покриття ширше за pip-audit: він дивиться лише на Python, а
+        # Trivy бачить ще й залежності фронтенду.
         run: |
-          trivy fs --scanners vuln --pkg-types python --severity HIGH,CRITICAL \
+          trivy fs --scanners vuln --pkg-types library --severity HIGH,CRITICAL \
             --ignore-unfixed --exit-code 1 .
 
       - name: Semgrep (SAST у бекенді)

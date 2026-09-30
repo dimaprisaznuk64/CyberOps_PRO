@@ -754,6 +754,55 @@ def test_deploy_waits_for_every_deployment_it_applies() -> None:
     )
 
 
+def test_security_checks_in_ci_are_all_blocking() -> None:
+    """Жоден крок перевірки безпеки не має бути continue-on-error.
+
+    Регресія: крок Trivy стояв із `continue-on-error: true` і коментарем
+    «поки що не блокує». Насправді він не блокував ніжого зовсім іншого —
+    падав на `--pkg-types python`, якого в Trivy v0.70.0 не існує, і
+    `continue-on-error` ковтав FATAL. Тобто сканування CVE не відбулося
+    жодного разу, а job був зелений: gate, який не перевіряє нічого, гірший
+    за відсутність gate — він створює враження, що перевірка є.
+    """
+    ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    jobs = ci.get("jobs") or {}
+    assert "security" in jobs, "у ci.yml немає job security"
+
+    lenient = [
+        step.get("name", "?")
+        for step in jobs["security"].get("steps") or []
+        if step.get("continue-on-error") is True
+    ]
+    assert lenient == [], (
+        f"кроки перевірки безпеки не блокують: {lenient}. Помилка в них "
+        "лишається непомітною — спершу зелено, далі непомітно"
+    )
+
+
+def test_trivy_uses_a_package_type_it_supports() -> None:
+    """`--pkg-types` має бути os або library; `python` не існує.
+
+    Trivy змінив схему прапорців: раніше мовні пакети називалися `python`,
+    тепер це `library`. Старе значення не «просто ігнорується», а робить
+    крок fatally-помилковим — тобто з `continue-on-error` сканування
+    мовчки вимикалося.
+    """
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    # Коментарі згадують старий флаг — історично, у тексті. Дивимося лише
+    # на те, що реально виконується.
+    code = "\n".join(
+        line for line in ci.splitlines() if not line.lstrip().startswith("#")
+    )
+    values = re.findall(r"--pkg-types[= ]+(\w+)", code)
+    assert values, "у ci.yml немає виклику Trivy з --pkg-types"
+    unsupported = [v for v in values if v not in {"os", "library"}]
+    assert unsupported == [], (
+        f"Trivy --pkg-types {unsupported} не підтримується. Помилка флага "
+        "робить крок fatally-ним, тож разом із continue-on-error сканування "
+        "мовчки не відбувається"
+    )
+
+
 def test_smoke_script_checks_observability_not_just_the_app() -> None:
     """Стенд мусить доводити, що моніторинг бачить систему, а не лише що
     бекенд відповідає.

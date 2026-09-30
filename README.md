@@ -304,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 241 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 243 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy (поки `continue-on-error`), Semgrep `p/ci` — лише якщо задано `SEMGREP_APP_TOKEN` |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -323,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 241 тестів
+python -m pytest tests -q                 # 243 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
