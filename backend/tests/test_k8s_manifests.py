@@ -529,3 +529,188 @@ def test_ci_does_not_bake_the_api_url_into_published_images() -> None:
         "прив'язаним до адреси, під якою його зібрали"
     )
 
+
+# --- v1.16: спостережуваність, яку ніхто не перевіряв ------------------------
+#
+# До v1.16 весь observability-стек був увімкнений «на очі»: Jaeger, Prometheus і
+# Grafana піднімалися на обох стендах, але жодна перевірка не дивилася, чи вони
+# бачать те, що їм доручено. Наслідок — баг, який жив у конфігурації роками й
+# був невидимий: Prometheus скрейпив jaeger:14269, а k8s Service цей порт не
+# експортував. `kubectl kustomize` такий конфіг приймає, compose так само, а
+# дашборд просто має порожню панель — виглядає як «немає трафіку».
+
+PROMETHEUS_LOCAL = ROOT / "monitoring" / "prometheus.yml"
+PROMETHEUS_MANIFEST = BASE / "prometheus.yaml"
+
+
+def _prometheus_scrape_config() -> dict[str, Any]:
+    """Конфіг, який згодом побачить Prometheus на стенді.
+
+    Беремо з ConfigMap у prometheus.yaml, а не з monitoring/prometheus.yml:
+    перевіряємо саме те, що застосується в k8s.
+    """
+    for doc in _documents(PROMETHEUS_MANIFEST):
+        if doc.get("kind") == "ConfigMap":
+            raw = (doc.get("data") or {}).get("prometheus.yml")
+            assert raw, "у prometheus.yaml немає ключа prometheus.yml"
+            return yaml.safe_load(raw)
+    raise AssertionError("ConfigMap із prometheus.yml не знайдено")
+
+
+def _service_ports() -> dict[str, set[int]]:
+    """Service -> множина портів, які він реально експортує.
+
+    Prometheus ходить на Service-адресу, а не на Pod IP, тож неоголошений порт
+    недоступний, навіть якщо контейнер його слухає.
+    """
+    ports: dict[str, set[int]] = {}
+    for _filename, doc in _all_service_docs():
+        name = doc["metadata"]["name"]
+        ports.setdefault(name, set()).update(
+            port["port"] for port in doc.get("spec", {}).get("ports") or []
+        )
+    return ports
+
+
+def test_every_prometheus_target_is_backed_by_a_service_port() -> None:
+    """Головний інваріант v1.16: таргет скрейпу мусить мати Service, який
+    експортує саме цей порт.
+
+    Регресія: `cyberops-jaeger -> jaeger:14269`, де 14269 — admin-порт Jaeger
+    (`/metrics`, згідно документації all-in-one). Але Service `jaeger` мав
+    лише 4318 і 16686, тож Prometheus скрейпив порт, якого в Service немає, і
+    таргет лишався DOWN. Ніхто цього не бачив: статус таргетів не читав ніхто.
+    """
+    services = _service_ports()
+    broken: dict[str, str] = {}
+    for job in _prometheus_scrape_config().get("scrape_configs") or []:
+        for static in job.get("static_configs") or []:
+            for target in static.get("targets") or []:
+                host, _, port = target.rpartition(":")
+                if host in {"localhost", "127.0.0.1"}:
+                    # self-скрейп: Prometheus скрейпить сам себе всередині
+                    # контейнера, Service для цього не потрібен.
+                    continue
+                if host not in services:
+                    broken[target] = f"немає Service {host!r}"
+                elif int(port) not in services[host]:
+                    broken[target] = (
+                        f"Service {host!r} експортує {sorted(services[host])}, "
+                        f"а таргет просить {port}"
+                    )
+    assert broken == {}, f"тарагети Prometheus без Service: {broken}"
+
+
+def test_both_stands_ship_the_same_prometheus_config() -> None:
+    """Конфіг Prometheus не має існувати у двох незалежних копіях.
+
+    compose монтує monitoring/prometheus.yml, а k8s ConfigMap містить його
+    копію. Kustomize не дає посилатися на файл поза своїм каталогом, тому
+    джерелом істини лишається файл, а цей тест не дає копії розійтися з ним.
+    """
+    embedded = _prometheus_scrape_config()
+    local = yaml.safe_load(PROMETHEUS_LOCAL.read_text(encoding="utf-8"))
+    assert embedded == local, (
+        "monitoring/prometheus.yml розійшовся з копією в prometheus.yaml — "
+        "Prometheus на compose і в k8s скрейпитимуть різні набори таргетів"
+    )
+
+
+def test_grafana_password_is_not_hardcoded_in_the_manifest() -> None:
+    """Grafana не має брати пароль із літерала в YAML.
+
+    Регресія: `GF_SECURITY_ADMIN_PASSWORD: admin` прямо в grafana.yaml, при
+    тому що compose-prod вимагав обов'язковий GRAFANA_ADMIN_PASSWORD. Service
+    виставлений назовні (nodePort 30300), тож публічний інстанс мав admin/admin
+    — рівно той самий клас діри, що APP_ENV="production" vs "prod" у v1.13:
+    захист був у compose-шляху й мертвий у k8s-шляху.
+    """
+    grafana = _find_workload(BASE / "grafana.yaml", "grafana")
+    env = {entry["name"]: entry for entry in _containers(grafana)[0].get("env") or []}
+    password = env.get("GF_SECURITY_ADMIN_PASSWORD")
+    assert password is not None, "grafana без GF_SECURITY_ADMIN_PASSWORD"
+    assert "value" not in password, (
+        f"пароль Grafana захардкожено: {password['value']!r} — "
+        "він мусить приходити зі Secret"
+    )
+    ref = (password.get("valueFrom") or {}).get("secretKeyRef") or {}
+    assert ref.get("name") and ref.get("key"), (
+        "пароль Grafana має приходити через secretKeyRef"
+    )
+    secret_keys = _load(SECRET).get("stringData") or {}
+    assert ref["key"] in secret_keys, (
+        f"ключа {ref['key']!r} немає в secret.yaml — контейнер впав би з "
+        "CreateContainerConfigError"
+    )
+
+
+def test_deploy_waits_for_every_deployment_it_applies() -> None:
+    """E2E мусить чекати на кожен застосований Deployment.
+
+    Регресія: цикл `for d in ...` у deploy.yml містив 10 імен, а в base було
+    11 деплойментів — `jaeger` був пропущений. Тобто міг не піднятися
+    колектор, до якого йдуть OTLP-спани з усіх сервісів, а E2E був зелений.
+    Список у воркфлоу не оновлюється разом із маніфестами, тож міг
+    розійтися знову; тепер він береться з кластера.
+    """
+    workflow = DEPLOY_WORKFLOW.read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in workflow.splitlines() if not line.lstrip().startswith("#")
+    )
+    assert "get deployments" in code, (
+        "deploy.yml має брати список деплойментів із кластера, а не з константи"
+    )
+    assert not re.search(r"for d in (?!\$\()\w", code), (
+        "у deploy.yml знову з'явився перелік деплойментів літералом — він "
+        "розійдеться з маніфестами при першій же зміні"
+    )
+
+
+def test_smoke_script_checks_observability_not_just_the_app() -> None:
+    """Стенд мусить доводити, що моніторинг бачить систему, а не лише що
+    бекенд відповідає.
+
+    До v1.16 smoke.sh перевіряв `/health`, UI, CORS і вхід — усе про застосунок.
+    Жодної перевірки не було про Prometheus, Jaeger і Grafana, тож стенд із
+    мертвим моніторингом проходив E2E. Імена сервісів приходять ззовні:
+    константа всередині означала б, що тест підтверджує себе сам.
+    """
+    text = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    for needle in (
+        "PROMETHEUS_URL",
+        "/api/v1/targets",
+        "JAEGER_URL",
+        "/api/services",
+        "/api/traces",
+        "GRAFANA_URL",
+        "/api/datasources",
+        "/health",
+    ):
+        assert needle in text, f"у smoke.sh немає перевірки {needle}"
+    assert "EXPECTED_TRACE_SERVICES" in text
+
+
+@pytest.mark.parametrize("workflow", ["deploy.yml", "prod-e2e.yml"])
+def test_both_stands_point_the_smoke_test_at_their_observability_stack(
+    workflow: str,
+) -> None:
+    """Обидва стенди мусять передавати ті самі адреси спостережуваності.
+
+    Інакше стенди знову розійдуться: один перевіряє моніторинг, другий — ні,
+    і «CI зелений» перестане щось означати (те саме, що зі скопійованим
+    smoke-тестом у v1.15).
+    """
+    text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+    for needle in (
+        "PROMETHEUS_URL",
+        "JAEGER_URL",
+        "GRAFANA_URL",
+        "GRAFANA_PASS",
+        "EXPECTED_TRACE_SERVICES",
+    ):
+        assert needle in text, f"{workflow} не передає {needle} у smoke.sh"
+    # kind має ще й пробросить порти: там спостережуваність не на localhost.
+    if workflow == "deploy.yml":
+        for service in ("prometheus", "jaeger", "grafana"):
+            assert f"svc/{service}" in text, f"deploy.yml не робить port-forward для {service}"
+

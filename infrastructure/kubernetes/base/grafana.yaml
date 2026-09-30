@@ -16,8 +16,19 @@ spec:
         - name: grafana
           image: grafana/grafana:11.1.0
           env:
+            - name: GF_SECURITY_ADMIN_USER
+              # Не літерал у маніфесті: Service виставлений назовні
+              # (nodePort 30300), тож захардкожений пароль — це публічний
+              # вхід. Значення приходить із Secret, як і решта секретів.
+              valueFrom:
+                secretKeyRef:
+                  name: cyberops-secrets
+                  key: GRAFANA_ADMIN_USERNAME
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: admin
+              valueFrom:
+                secretKeyRef:
+                  name: cyberops-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
           ports:

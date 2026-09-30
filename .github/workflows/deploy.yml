@@ -39,10 +39,16 @@ jobs:
       - name: Wait migrations
         run: kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
 
+      # Список деплойментів беремо з кластера, а не з константи тут. Раніше
+      # jaeger був пропущений у цьому списку — тобто він міг не піднятися,
+      # а E2E був зелений: OTLP-спани з усіх сервісів ішли в колектор,
+      # якого нема. Список у воркфлоу не оновлюється разом із manifests,
+      # тож міг розійтися знову вже наступного разу.
       - name: Wait rollouts
         run: |
-          for d in postgres redis rabbitmq core auth gateway worker frontend prometheus grafana; do
-            kubectl -n cyberops rollout status deployment/$d --timeout=240s
+          for d in $(kubectl -n cyberops get deployments -o name); do
+            echo "=== rollout: $d"
+            kubectl -n cyberops rollout status "$d" --timeout=240s
           done
 
       # Не просто «процеси піднялися». Старий крок робив один curl /health, тож
@@ -51,13 +57,22 @@ jobs:
       # curl не бачить у принципі:
       #   * runtime-конфіг — адреса API приходить у браузер, а не з бандлу;
       #   * CORS — запит із заголовком Origin, тобо так, як його робить браузер.
+      #   * спостережуваність — таргети Prometheus up, спани прибули в Jaeger,
+      #     датасорс Grafana здоровий (до v1.16 ніхто цього не перевіряв, і
+      #     через це жив баг з недоступним jaeger:14269 у Service).
       - name: Smoke test (via gateway)
         run: |
           kubectl -n cyberops port-forward svc/gateway 8000:8000 &
           GW_PID=$!
           kubectl -n cyberops port-forward svc/frontend 3000:3000 &
           FE_PID=$!
-          trap 'kill $GW_PID $FE_PID 2>/dev/null || true' EXIT
+          kubectl -n cyberops port-forward svc/prometheus 9090:9090 &
+          PROM_PID=$!
+          kubectl -n cyberops port-forward svc/jaeger 16686:16686 &
+          JAEGER_PID=$!
+          kubectl -n cyberops port-forward svc/grafana 3001:3000 &
+          GRAFANA_PID=$!
+          trap 'kill $GW_PID $FE_PID $PROM_PID $JAEGER_PID $GRAFANA_PID 2>/dev/null || true' EXIT
           sleep 3
 
           # Очікувані значення беремо з самої розгорнутої лози, а не з
@@ -72,6 +87,22 @@ jobs:
           export EXPECTED_ORIGIN="http://localhost:$FRONTEND_ORIGIN"
           export ADMIN_USER="$(secret_get ADMIN_USERNAME)"
           export ADMIN_PASS="$(secret_get ADMIN_PASSWORD)"
+          export PROMETHEUS_URL=http://localhost:9090
+          export JAEGER_URL=http://localhost:16686
+          export GRAFANA_URL=http://localhost:3001
+          export GRAFANA_USER=admin
+          export GRAFANA_PASS="$(secret_get GRAFANA_ADMIN_PASSWORD)"
+          # Якщо трасування вимкнено, перевіряти спани безглуздо, і мовчазно
+          # пропустити їх не можна — тоді б тест знову був зелений на стенді
+          # без спостережуваності. Замість цього падаємо з поясненням.
+          TRACING_ON=$(kubectl -n cyberops get configmap cyberops-config -o jsonpath='{.data.TRACING_ENABLED}')
+          if [ "$TRACING_ON" != "true" ]; then
+            echo "::error::TRACING_ENABLED=$TRACING_ON, а перевірка спанів обов'язкова"
+            exit 1
+          fi
+          # Ці три сервіси справді проходять запитами вище (через gateway ->
+          # core/auth), тож їхні спани мають дійти до Jaeger.
+          export EXPECTED_TRACE_SERVICES="gateway core auth"
           bash scripts/smoke.sh
 
       - name: Pods

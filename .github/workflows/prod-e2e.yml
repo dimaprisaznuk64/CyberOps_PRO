@@ -52,6 +52,16 @@ jobs:
           export ADMIN_USER=admin
           export ADMIN_PASS="$ADMIN_PASSWORD"
           export SMOKE_ASSET_NAME=prod-e2e
+          # Ті самі перевірки, що й на kind: спостережуваність теж мусить
+          # працювати на прод-стенді, а не лише в розробці. Адреси — з
+          # compose (усі три сервіси слухають на 127.0.0.1), пароль Grafana —
+          # той самий обов'язковий секрет, який і compose-prod вимагає.
+          export PROMETHEUS_URL=http://localhost:9090
+          export JAEGER_URL=http://localhost:16686
+          export GRAFANA_URL=http://localhost:3001
+          export GRAFANA_USER=admin
+          export GRAFANA_PASS="$GRAFANA_ADMIN_PASSWORD"
+          export EXPECTED_TRACE_SERVICES="gateway core auth"
           bash scripts/smoke.sh
 
       # Діагностика — до `down`, щоб логи не зникли. На kind це дало весь

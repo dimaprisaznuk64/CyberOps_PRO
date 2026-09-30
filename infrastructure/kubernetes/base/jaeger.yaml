@@ -23,6 +23,12 @@ spec:
               containerPort: 4318
             - name: ui
               containerPort: 16686
+            # Admin-порт: саме тут Jaeger віддає /metrics для Prometheus.
+            # Без цього порту в Service таргет cyberops-jaeger скрейпив
+            # неіснуючий порт і лишався DOWN — тихо, бо ніхто не дивився
+            # у статус таргетів (до v1.16 їх не перевіряв ніхто).
+            - name: admin
+              containerPort: 14269
           readinessProbe:
             httpGet:
               path: /
@@ -50,3 +56,9 @@ spec:
       port: 16686
       targetPort: 16686
       nodePort: 30086
+    # Prometheus ходить на 14269 (admin /metrics). Service мусить його
+    # експортувати: Prometheus скрейпить Service-адресу, а не Pod IP, тож
+    # неоголошений порт недоступний, і таргет лишається DOWN.
+    - name: admin
+      port: 14269
+      targetPort: 14269
