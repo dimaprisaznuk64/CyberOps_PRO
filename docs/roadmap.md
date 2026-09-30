@@ -35,7 +35,8 @@
 | v1.16 | ✅ | Спостерігаємість, яку ніхто не перевіряв: недоступний `jaeger:14269`, `jaeger` поза rollout-циклом, публічний Grafana з `admin/admin`, а `core`/`auth` не відправляли жодного спана | `df2a0c0`, `5c38f01` |
 | v1.17 | ✅ | v1.16 відкрив назовні admin-порт Jaeger, бо додав його у вже-NodePort Service; зовнішні порти тепер зафіксовані інваріантом | `50e6449` |
 | v1.18 | ✅ | E2E більше не твердить власний healthcheck: імена сервісів у Jaeger з розгорнутого стенду; `gateway` неявно брав дефолт `core` | `2ef0155` |
-| v1.19 | ✅ | Trivy був gate, який не сканував нічого: неіснуючий `--pkg-types python` під `continue-on-error` | (поточний) |
+| v1.19 | ✅ | Trivy був gate, який не сканував нічого: неіснуючий `--pkg-types python` під `continue-on-error` | `ed7dc6d` |
+| v1.20 | ✅ | Next 14.2.15 -> 15.5.26: два unauthenticated RCE + 8 HIGH у проді; `postcss` через `overrides` | `44b066b` |
 
 ## v1.13 — kind-E2E падав, а воркфлою не показував чому
 
@@ -1062,4 +1063,51 @@ FATAL  flag error: unable to parse flags: invalid argument "[python]"
 
 **+2 тести (243).** Перевірено в реверсі: на попередньому `ci.yml` падають
 обидва — `['Trivy scan']` і `['python']`.
+
+## v1.20 — два unauthenticated RCE у проді
+
+Наскрізна перевірка з v1.19 вперше відпрацювала і зразу показала, що
+`next@14.2.15` непатчений:
+
+| Advisory | Severity | Фікс |
+|---|---|---|
+| CVE-2025-29927 — Authorization Bypass у Next Middleware | CRITICAL | 14.2.25 |
+| CVE-2026-75604 + GHSA-2xp9-vwfh-vxw4 — Unauthenticated RCE | CRITICAL | **лише** 15.5.24 / 16.3.3 |
+| ще 8 advisory (SSRF, DoS, інфо-витік) | HIGH | переважно без фіксу в 14.x |
+| CVE-2026-45623, CVE-2026-73646 (postcss) | HIGH | 8.5.12 / 8.5.18 |
+
+Патч усередині 14.x не витягнув би: `14.2.35` закриває 3 із 13 advisory і
+лишає обидва RCE. Довелося на мажорний перехід.
+
+**`postcss` — окрема пастка.** Це транзитивна залежність `next`, і він
+зажатий на `8.4.31` як у `14.2.15`, так і в `15.5.26`. Тобто апгрейд `next`
+сам по собі **не закрив би** дві CVE в `postcss` — вони лишилися б живими.
+Додав `overrides.postcss = ^8.5.18`, тепер резолвиться в 8.5.28.
+
+Blast radius перевірено до змін, а не після:
+
+- усі сторінки клієнтські (`"use client"`);
+- `scans/[id]` читає `useParams()` — клієнтський хук, якого не зачіпає
+  перехід params на Promise у Next 15;
+- `next/headers` не використовується, тож async `cookies()`/`headers()`
+  мігрувати не треба;
+- middleware відсутній, `next.config` тривіальний.
+
+**Перевірено:** typecheck чистий, build 13/13 маршрутів, `npm audit` —
+0 vulnerabilities. `next-env.d.ts` Next 15 перегенерував із посиланням на
+`.next/types/routes.d.ts`, який лежить у gitignore; перевірив на чистому
+дереві без `.next/` — `tsc` проходить, бо ігнорує нерозв'язні `path`-референси,
+а CI ганяє typecheck перед build.
+
+**На CI** (`44b066b`) зелені всі чотири воркфлоу, а Trivy відпрацьовував
+по-справжньому — проскановано 4 маніфести, усі `0`:
+
+```
+backend/requirements.txt                     pip    0
+frontend/package-lock.json                   npm    0
+security-lab/vulnerable-api/requirements.txt pip    0
+security-lab/vulnerable-web/requirements.txt pip    0
+```
+
+Це головне: зелено не тому, що сканування не відбулося, як було до v1.19.
 

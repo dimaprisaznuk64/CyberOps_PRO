@@ -604,7 +604,7 @@ Finding → AI Assistant → explanation + impact + risk_explanation + remediati
 
 ## Frontend (v1.0)
 
-Next.js 14 (App Router, React 18, TypeScript, без сторонніх CSS-бібліотек —
+Next.js 15 (App Router, React 19, TypeScript, без сторонніх CSS-бібліотек —
 власний темний UI), розміщений у `frontend/`.
 
 ```text
