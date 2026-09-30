@@ -30,6 +30,10 @@ web-dashboard.
 | **1.10** | ✅ | Gateway: актуальний стек (18 CVE), робочий Dockerfile, трейсинг ✅ |
 | **1.11** | ✅ | Refresh-токен у тілі запиту замість query ✅ |
 | **1.12** | ✅ | K8s: `DATABASE_URL`/`CORS_ORIGINS` у Secret, а не ConfigMap ✅ |
+| **1.13** | ✅ | Kind-E2E знову зелений: `imagePullPolicy`, колізія `GATEWAY_PORT`, повтори міграцій, охорона `APP_ENV=prod`, логи в CI ✅ |
+| **1.14** | ✅ | UI в k8s працює: адреса API в рантаймі, CORS для nodePort, сид адміна з повторами; E2E перевіряє поведінку, а не процеси ✅ |
+| **1.15** | ✅ | Compose-prod: одноразові міграції в стеку, образ не прив'язаний до адреси збірки, окремий воркфлоу `Prod E2E` ✅ |
+| **1.16** | ✅ | Спостережуваність під контролем: недоступний `jaeger:14269`, `jaeger` поза rollout-циклом, `admin/admin` у k8s-Grafana, а `core`/`auth` не відправляли жодного спана; E2E перевіряє моніторинг ✅ |
 
 ## Ролі (RBAC)
 
@@ -72,14 +76,16 @@ CyberOps_PRO/
 ├── gateway/            # API Gateway (FastAPI): маршрутизація, JWT-гейт, заголовки identity
 ├── backend/            # FastAPI: core (assets/scans/findings/...) + auth (app.auth_app)
 ├── frontend/           # Next.js / React (App Router) UI: dashboard, assets, scans, findings, reports
+├── legacy/dashboard/   # старий однофайловий дашборд на /dashboard (зворотна сумісність)
 ├── services/scanner/   # Nmap: build_command, run_nmap, parse_nmap_xml
 ├── workers/            # Celery worker (Redis broker)
 ├── security-lab/       # навмисно вразливі: vulnerable-api, vulnerable-web, test-db
 ├── monitoring/         # Prometheus, Grafana, Jaeger
 ├── infrastructure/     # kubernetes (kustomize) manifests, terraform (aws)
-├── docs/               # architecture, deployment, demo
-├── scripts/            # demo.py (end-to-end demo через Gateway)
-├── docker-compose.yml
+├── docs/               # architecture, deployment, demo, roadmap
+├── scripts/            # demo.py (E2E демо), smoke.sh (перевірка стендів), remote-configure.sh
+├── docker-compose.yml  # базовий compose (dev)
+├── docker-compose.prod.yml  # prod-override: обов'язкові секрети, APP_ENV=prod, обмежені логи
 ├── Makefile
 └── README.md
 ```
@@ -222,25 +228,56 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 infrastructure/kubernetes/
 ├── kustomization.yaml     # root -> base
 ├── base/                  # namespace, config, secrets, postgres, redis, rabbitmq,
-│                          # migrations Job, core, auth, gateway, worker, frontend, prometheus, grafana
-├── overlays/dev/          # dev overlay (= base, для kind-розгортання)
+│                          # migrations Job, core, auth, gateway, worker, frontend,
+│                          # prometheus, jaeger, grafana
+├── overlays/dev/          # dev overlay (base + APP_ENV: dev) для kind-розгортання
 └── base/grafana/          # provisioning (datasource, dashboards) як ConfigMap
 ```
 
 - `core`/`auth` використовують один образ `cyberops-backend` з різними командами
   (`app.main` на 8001, `app.auth_app` на 8002); `worker` і `gateway` — окремі образи.
-- `migrations` — одноразовий **Job** (`alembic upgrade head`).
-- Probes: `readiness/liveness` HTTP `/health` у всіх сервісів.
-- Gateway — `NodePort 30080`, Grafana — `NodePort 30300`, frontend — `NodePort 30010`.
+- `migrations` — одноразовий **Job** (`alembic upgrade head`) з `initContainer`,
+  що чекає на TCP до БД (адресу бере з `DATABASE_URL`, а не хардкодить). Job
+  створюється разом із усім іншим маніфестом, тобто одразу після `apply`, а
+  postgres на той момент ще піднімається: без очікування Job витрачав дві з
+  трьох спроб (`backoffLimit: 3`) на connection refused.
+- Probes: `readiness/liveness` HTTP `/health` у всіх сервісів, **крім gateway** —
+  його `/health` навмисно ходить ще й у `core`/`auth` і повертає 503, коли вони
+  не готові. Для readiness це правильно, але в livenessProbe це означало, що
+  kubelet перезапускав здоровий проксі через затримку внизу. Додано
+  `/health/live` («процес живий», без залежностей) і перевів liveness на нього.
+- Gateway — `NodePort 30080`, Grafana — `NodePort 30300`, frontend — `NodePort 30010`,
+  Jaeger UI — `NodePort 30086`.
 - Prometheus scrape-таргети через DNS: `gateway:8000`, `core:8001`,
-  `auth:8002`, `worker:9091`.
+  `auth:8002`, `worker:9091`, `jaeger:14269`.
+- Імена змінних, які **kubelet підставляє сам** (`<SERVICE>_SERVICE_HOST`,
+  `<SERVICE>_SERVICE_PORT`, `<SERVICE>_<PORTNAME>`, де для безіменного порту
+  `PORTNAME = PORT`), не можуть дублювати те, що читає код. Тому порт gateway
+  названо `GATEWAY_LISTEN_PORT`, а не `GATEWAY_PORT` — інакше kubectl підставляє
+  в контейнер `GATEWAY_PORT=tcp://10.96.x.x:8000`, `entrypoint.sh` читає це як
+  номер порту, uvicorn виходить із кодом 2, і контейнер йде в CrashLoopBackOff.
+  Цей інваріант перевіряється тестом на весь клас, а не на цей один випадок.
 
-**Конфіг і секрети (v1.12):** несекретні параметри (`APP_ENV`, URL сервісів,
-ліміти) живуть у ConfigMap `cyberops-config`, а **усі ключі з паролями — у
-Secret `cyberops-secrets`**: `POSTGRES_PASSWORD`, `JWT_SECRET`,
-`DATABASE_URL` (містить пароль) і `CORS_ORIGINS`. ConfigMap не шифрований і
-читається через `kubectl get configmap -o yaml`, тож `DATABASE_URL` у ньому —
-це пароль у відкритому вигляді.
+**Конфіг і секрети (v1.12, v1.14, v1.16):** несекретні параметри (`APP_ENV`, URL
+сервісів, ліміти) живуть у ConfigMap `cyberops-config`, а **усі ключі з
+паролями — у Secret `cyberops-secrets`**: `POSTGRES_PASSWORD`, `JWT_SECRET`,
+`DATABASE_URL` (містить пароль), `CORS_ORIGINS`, `ADMIN_USERNAME`/
+`ADMIN_PASSWORD` (їх E2E бере зі Secret, щоб облікові дані не роз'їжджалися з
+маніфестом) і `GRAFANA_ADMIN_PASSWORD`. ConfigMap не шифрований і читається
+через `kubectl get configmap -o yaml`, тож `DATABASE_URL` у ньому — це пароль у
+відкритому вигляді. Той самий інваріант стосується Grafana: `GF_SECURITY_ADMIN_PASSWORD`
+мусить приходити через `secretKeyRef`, бо Service виставлений назовні
+(`nodePort 30300`) — літерал у маніфесті це публічний `admin/admin`.
+
+> **Охорона має спрацювати на обох шляхах.** `app/config.py` відмовляється
+> стартувати з шаблонними `JWT_SECRET`/паролями в проді. Ключовий рядок —
+> `_is_production()`: він приймає і `production`, і `prod`, бо саме `prod`
+> виставляють і `docker-compose.prod.yml`, і k8s-ConfigMap. Раніше перевірка
+> порівнювала з `"production"`, тож жоден реальний прод-деплой її не проходив.
+> Тест, який перевіряє охорону, має використовувати те саме значення, що й
+> прод-конфіги, інакше він перевіряє інший світ.
+> `overlays/dev` перекриває `APP_ENV` на `dev`, бо base лишається `prod`
+> для справжніх прод-оверлеїв.
 
 Значення в `secret.yaml` — **заглушки для локального стенду**, у Git вони
 не є справжніми секретами. Для продакшену підключіть зовнішній менеджер
@@ -263,34 +300,109 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 ```
 
 **CI/CD (GitHub Actions, `.github/workflows/`):**
-- `ci.yml` — тести + ruff + `docker compose config -q` + `kubectl kustomize` валідація + frontend (npm ci, typecheck, build).
-- `security` job (v1.2) — Bandit (SAST, `-ll`), `pip-audit` (жорсткий gate:
-  падає на відомому CVE), Trivy (поки `continue-on-error`, базовий результат ще
-  не підтверджено на CI-образі), Semgrep `p/ci` — виконується, лише якщо
-  задано secret `SEMGREP_APP_TOKEN`.
+
+| Воркфлоу | Коли | Що робить |
+|---|---|---|
+| `ci.yml` | push + PR | ruff, 239 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy (поки `continue-on-error`), Semgrep `p/ci` — лише якщо задано `SEMGREP_APP_TOKEN` |
+| `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
+| `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
+| `prod-e2e.yml` | push + ручний запуск | **compose-prod E2E**: те саме, але на тому самому `scripts/smoke.sh` |
+
+Усі воркфлою мають `workflow_dispatch`: перший пуш у нове репо не запускає
+жодного (GitHub не встигає зареєструвати файли воркфлою в тій самій гілці), а
+прогін без жодного кроку не перезапускається — «cannot be retried».
+
+`docker.yml` **не вписує** `NEXT_PUBLIC_API_URL` в опублікований образ: той,
+хто візьме `ghcr.io/.../cyberops-frontend:dev`, отримає UI, який ходить у
+`localhost` свого браузера. Адреса приходить у рантаймі (див. далі), тому образ
+придатний для будь-якої адреси.
+
+**Локальні перевірки те саме, що робить CI:**
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 211 тестів
+python -m pytest tests -q                 # 239 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
 ```
-- `docker.yml` — збірка та push образів до `ghcr.io/<owner>/<repo>`:
-  on push до `master` — тег `dev`, on tag `v*` — тег версії без `v`.
-- `deploy.yml` — **kind E2E**: збирає образи, створює kind-кластер, застосовує
-  overlay, чекає migrations Job і rollout, тест `/health` через порт-форвард gateway:8000.
+
+`deploy.yml` чекає rollout **кожного** деплоймента, взятого з кластера
+(`kubectl get deployments`), а не зі списку літералом у воркфлою: список у
+воркфлою не оновлюється разом із маніфестами й уже розійшовся один раз
+(`jaeger` не потрапив у список, тож колектор міг не піднятися, а E2E був
+зелений). Крок `Diagnostics` (`if: always()`) знімає events, `describe` і логи
+`current`/`--previous` для кожного пода — без нього видно лише симптом, а не
+причину.
 
 **Локальне деплоювання в kind:**
 
 ```bash
 docker compose build
-kind create cluster
-kind load docker-image cyberops/cyberops-backend:latest cyberops/cyberops-worker:latest cyberops/cyberops-gateway:latest cyberops/cyberops-frontend:latest
+kind create cluster --name cyberops
+kind load docker-image --name cyberops cyberops/cyberops-backend:latest cyberops/cyberops-worker:latest cyberops/cyberops-gateway:latest cyberops/cyberops-frontend:latest
 kubectl apply -k infrastructure/kubernetes/overlays/dev
 kubectl -n cyberops wait --for=condition=complete job/migrations --timeout=240s
 kubectl -n cyberops rollout status deploy/gateway --timeout=240s
 kubectl -n cyberops port-forward svc/gateway 8000:8000
+```
+
+> Ім'я кластера задавай явно: `kind load` без `--name` читає контекст `kind` і
+> не знаходить нічого (`no nodes found for cluster`).
+> Свої образи мають `imagePullPolicy: IfNotPresent` — для `:latest` kubelet за
+> замовчуванням ставить `Always` і йде в registry за образом, якого там немає
+> (`ImagePullBackOff`).
+
+## Стенди й E2E: що саме перевіряється (v1.13–v1.16)
+
+Проєкт має **два повноцінні стенди**, і обидва проходять **той самий** скрипт
+`scripts/smoke.sh`. Копія одного тесту в двох воркфлоу розходиться з першою ж
+правкою, а далі «CI зелений» нічого не означає.
+
+| Стенд | Воркфлоу | Що піднімає |
+|---|---|---|
+| kind | `deploy.yml` | 11 деплойментів + Job `migrations`, порти через `kubectl port-forward` |
+| compose-prod | `prod-e2e.yml` | увесь стек із `docker-compose.prod.yml` (обов'язкові секрети, `APP_ENV=prod`) |
+
+Скрипт перевіряє поведінку, а не «процеси піднялися»:
+
+1. **`/runtime-config.js` віддає очікувану адресу API.** Значення звіряється з
+   ConfigMap/compose env, а не з константи в тесті — інакше тест підтверджував
+   би себе сам. Головна перевірка проти v1.14: `NEXT_PUBLIC_*` підставляється
+   під час `next build`, тож адреса, вшита в бандл, вічна.
+2. **CORS так, як його робить браузер** — `OPTIONS` з `Origin` і
+   `Access-Control-Request-Method`, порівняння з origin, узятим із Service.
+   `curl` без `Origin` ніколи не бачив би попереднього багу.
+3. **Вхід адміністратором** (облікові дані зі Secret, обмежена кількість спроб
+   через backoff сида) і **створення активу з читанням назад** (201 + readback).
+4. **Усі таргети Prometheus `up`** — список береться з самого Prometheus
+   (`/api/v1/targets`), а при падінні в лог іде реальна причина (`lastError`).
+5. **Спани прибули в Jaeger** для сервісів, через які пройшли запити вище
+   (`EXPECTED_TRACE_SERVICES`), **і реально читаються** через `/api/traces` —
+   сама реєстрація сервісу нічого не доводить, дані могли не дійти.
+6. **Датасорс Grafana provisionований і здоровий** (`/api/datasources` +
+   `/health` датасорса). `/api/health` самої Grafana тут безкоштовний: вона
+   радісно віддає `ok`, навіть коли датасорс мертвий.
+
+Якщо `TRACING_ENABLED` вимкнено, крок **падає з поясненням**, а не пропускає
+перевірку мовчки — інакше стенд без спостережуваності знову був би зеленим.
+
+У `prod-e2e.yml` адреса API свідомо **не** `localhost`, а
+`http://203.0.113.10:8000` — недосяжний TEST-NET-3 (RFC 5737). Так тест
+доводить головне: адреса приходить з контейнера, а не з бандлу. Якби збірка
+знову почала брати її з аргументу, крок впав би тут, а не на проді.
+
+Запустити той самий скрипт локально (після `docker compose up -d`):
+
+```bash
+GATEWAY_URL=http://localhost:8000 FRONTEND_URL=http://localhost:3000 \
+EXPECTED_API_URL=http://localhost:8000 EXPECTED_ORIGIN=http://localhost:3000 \
+ADMIN_USER=admin ADMIN_PASS=... \
+PROMETHEUS_URL=http://localhost:9090 JAEGER_URL=http://localhost:16686 \
+GRAFANA_URL=http://localhost:3001 GRAFANA_USER=admin GRAFANA_PASS=... \
+EXPECTED_TRACE_SERVICES="gateway core auth" \
+bash scripts/smoke.sh
 ```
 
 ## Terraform / Cloud (v0.9)
@@ -380,10 +492,21 @@ seed-користувачем у публічний інтернет.
 Плюс `restart: unless-stopped` і `json-file` з лімітом (`10m` × `3`) на
 кожен сервіс: без ліміту логи з'їдають диск t3.medium і кладуть весь стек.
 
+**4. Міграцій у compose не було взагалі (v1.15).** `make up-prod` виконує
+`docker compose up -d --build`, а міграції запускає `make migrate` — але це
+`alembic` **на хості** проти `127.0.0.1:5432`. На чистій машині після
+`make up-prod` таблиць не існувало: бекенд піднімається, `/health` відповідає
+`ok`, сид адміна мовчки падає на відсутній таблиці — і системою не можна
+скористатися. Тепер у стеку є одноразовий сервіс `migrations`
+(`alembic upgrade head`, аналог k8s Job), а `core`/`auth`/`worker` чекають на
+`service_completed_successfully`, а **не** на `service_started`: стенд із
+падінням міграцій має зупинитися, а не піднятися й брехати `/health`. Для нього
+зроблено виняток `restart: "no"` — з `unless-stopped` compose піднімав би
+завершений контейнер по колу.
+
 ```bash
 cp .env.example .env   # обов'язково відредагувати секрети
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec core alembic upgrade head
-make up-prod           # = docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+make up-prod           # міграції виконуються автоматично, окремим кроком не треба
 make config-prod       # валідація конфігів (CI робить те саме)
 ```
 
@@ -486,6 +609,32 @@ frontend/
 - Збірка: `Dockerfile` (node:20-alpine, `npm ci` → static export/next start :3000),
   сервіс у `docker-compose.yml` (порт 3000), k8s-mаніфест `base/frontend.yaml`
   (`NodePort 30010`), GHCR-image `cyberops-frontend`, job у `ci.yml`.
+
+### Адреса API приходить у рантаймі (v1.14)
+
+`NEXT_PUBLIC_*` підставляється під час `next build`, тож значення стає
+константою в JavaScript **назавжди**. Тому образ фронтенду, зібраний без
+`.env`, отримує UI, який ходить у `localhost:8000` браузера відвідувача:
+інтерфейс відкривається порожнім, а симптом виглядає як «зламаний бекенд»
+(те саме, що v1.7 знайшов на віддаленому compose).
+
+- Контейнер віддає **`/runtime-config.js`** з `API_PUBLIC_URL`, а `layout.tsx`
+  підвантажує його звичайним `<script>` — до гідратації, бо компоненти читають
+  значення під час першого рендеру.
+- Route handler має **`force-dynamic`**: без нього Next зберіг би відповідь у
+  статичний бандл під час збірки, і ми б повернули рівно той самий баг. На
+  build має бути `ƒ /runtime-config.js` (dynamic), а не `○`.
+- Порядок джерел у `api.ts`: runtime → `NEXT_PUBLIC_API_URL` (лише для
+  `npm run dev`) → `window.location.origin`. Останнє свідомо краще за
+  `localhost:8000`: запит піде на поточний хост і впаде голосно (404 від Next)
+  замість того, щоб піти у випадковий порт на машині відвідувача. Перевірка на
+  порожність, а не `??` — Next підставляє в бандл навіть порожній рядок.
+- Адреса читається **щоразу**, а не один раз на модулі: скрипт конфігу
+  підвантажується під час розбору сторінки, тож на модулі значення було б ще не
+  готове.
+- `API_PUBLIC_URL` обов'язковий у prod-оверлеї; build-arg прибрано з compose,
+  Dockerfile і `docker.yml`, тож опублікований образ не прив'язаний до адреси,
+  під якою його зібрали.
 
 ## API (v0.7, через Gateway)
 
@@ -709,7 +858,8 @@ docker compose --profile mail up -d
   `scan_results_total` (status, risk_level), `scan_services_total`.
 - **Grafana** — профільно provisioned дашборд `monitoring/grafana/provisioning`
   (джерело Prometheus + панелі трафіку, тривалості скан-запусків, ризиків);
-  `http://localhost:3001` (admin/admin).
+  `http://localhost:3001` (admin/admin локально; у prod-оверлеї
+  `GRAFANA_ADMIN_PASSWORD` обов'язковий, а в k8s пароль приходить із Secret).
 - **Structured logs** — `LOG_JSON=true` перемикає логери на JSON-формат
   (`ts, level, logger, message` + додаткові поля).
 - **OpenTelemetry → Jaeger** (v1.2) — `TRACING_ENABLED=true` + `OTLP_ENDPOINT`
@@ -754,4 +904,97 @@ docker compose --profile mail up -d
      в `tests/test_gateway_tracing.py`;
    - якщо колектор недоступний, `BatchSpanProcessor` лише пише помилки в лог —
      застосунок працює далі.
+
+### Моніторинг, який працює (v1.16)
+
+До v1.16 весь цей стек був увімкнений «на очі»: Jaeger, Prometheus і Grafana
+піднімалися на обох стендах, а OTLP-трасування було увімкнено скрізь ще з
+v1.3 — але **ні одна перевірка не дивилася, чи вони бачать те, що їм доручено**.
+
+- **Кожен таргет скрейпу мусить мати Service, який експортує саме цей порт.**
+  Регресія: Prometheus скрейпив `jaeger:14269` (правильний admin-порт Jaeger
+  all-in-one), але k8s-Service `jaeger` експортував лише `4318` і `16686`.
+  Prometheus ходить на Service-адресу, а не на Pod IP, тож неоголошений порт
+  недоступний і таргет був `DOWN` завжди. Це невидимий симптом: `kustomize`
+  такий конфіг приймає, compose так само, а в Grafana це виглядає як порожня
+  панель — «немає трафіку».
+- **Дві копії конфігу Prometheus** (`monitoring/prometheus.yml`, який монтує
+  compose, і копія в k8s-ConfigMap) — два незалежні джерела правди. Kustomize
+  не дозволяє посилатися на файл поза своїм каталогом, тому єдиним джерелом
+  лишається файл, а тест перевіряє збіжність копії з ним.
+- **Пароль Grafana в k8s приходить із Secret** (`GF_SECURITY_ADMIN_PASSWORD` +
+  `GF_SECURITY_ADMIN_USER` через `secretKeyRef`), а не літералом у маніфесті.
+  Service виставлений назовні (`nodePort 30300`), тож літерал `admin` — це
+  публічний вхід, поки compose-prod вимагав обов'язковий `GRAFANA_ADMIN_PASSWORD`.
+  Це та сама форма, що `APP_ENV="production"` проти реального `"prod"`: захист
+  був в одному шляху й мертвий у іншому.
+- **E2E перевіряє результат, а не наявність**: таргети `up`, спани прибули в
+  Jaeger і читаються, датасорс Grafana здоровий (див. «Стенди й E2E»).
+- **Трасування не ламається від того, *коли* його ввімкнули.** Сама ця
+  перевірка знайшла четвертий баг: у Jaeger був лише `gateway`, а `core` і
+  `auth` не відправляли нічого. `setup_tracing(app)` викликався з `lifespan`,
+  але стек middleware до того вже побудовано, а `instrument_app()` лише
+  підміняє `build_middleware_stack` і сам її не викликає — тож middleware OTel
+  у ланцюг не потрапляв. Без жодного винятку: сервіс працював, а спани не
+  йшли. `gateway` маскував це, бо інструментується не через FastAPI. Тепер
+  `setup_tracing` перебудовує стек, якщо він уже є, тож не залежить від того,
+  з якого місця його викликали.
+
+> Спостерігаємість — не «увімкнено», а «бачить». Різниця між ними коштувала
+> чотири версії: кожна з них знайшла шар, який виглядав працездатним, бо
+> ніхто не перевіряв результат.
+## Знайдені помилки (v1.7–v1.16)
+
+Серія багів, знайдених на живих стендах, коли CI був зелений. Спільна форма
+всіх: **опис правильний, перевірка синтаксична** — `ruff`, `kustomize`,
+`docker compose config -q`, `kubectl apply` не доводять, що система працює.
+
+| Симптом | Причина | Чому не помітив CI | Версія |
+|---|---|---|---|
+| `ImagePullBackOff` (frontend) | образ без тегу = `:latest` → `imagePullPolicy: Always` → kubelet йде в registry за образом, якого там немає | `kustomize` не валідує pull-policy; решта деплойментів мали `IfNotPresent` явно | v1.13 |
+| `CrashLoopBackOff` (gateway) | kubelet підставляє в контейнер змінні кожного Service: `<SVC>_<PORTNAME>`, де для безіменного порту `PORTNAME = PORT`. Тобто `GATEWAY_PORT=tcp://10.96.x.x:8000` — рівно те ім'я, яке читав `entrypoint.sh`; uvicorn виходив із кодом 2 | змінної `GATEWAY_PORT` **немає в жодному маніфесті** — у YAML, у kustomize і в diff'і її не видно, вона з'являється лише на живому кластері | v1.13 |
+| `migrations`: дві спроби з трьох витрачено | Job створюється одразу після `apply`, а postgres ще піднімається; Alembic падав на connection refused | `kubectl apply` не чекає на залежності; на повільнішому CI четвертої спроби не було б — пайплайн зупинився б на таймауті | v1.13 |
+| gateway рестартувався здоровим | `livenessProbe` стояв на агрегованому `/health`, який ходить у `core`/`auth` і повертає 503, коли вони не готові | жоден тест не знав, що `/health` залежить від нижніх сервісів; поки тривали міграції, це гарантований цикл рестартів | v1.13 |
+| Воркфлою не парсилися (перший пуш) | `secrets` у кроковому `if` (контекст недоступний на цьому рівні), `lower()` не існує в мові виразів GH Actions, `setup-trivy@v0.2.3` не існує, `kind load` без `--name` шукає інший кластер | прогін без жодного кроку не перезапускається («cannot be retried») — помилку довелося дістати через `workflow_dispatch` | v1.13 |
+| `kubectl apply` відхиляв маніфест | `nodePort` без `type: NodePort` у `jaeger.yaml`; ключі ConfigMap `datasources/datasource.yaml` зі `/` (regex `[-._a-zA-Z0-9]+`) | kustomize таке дозволяє; відхиляється весь apply, тож однією помилкою зупинялося все розгортання | v1.13 |
+| `migrations` Job: `ValidationError` замість Alembic | `JWT_SECRET: change-me-in-production-now` у k8s `secret.yaml` — 27 байт, HS256 вимагає ≥ 32; валідатор з v1.2 падав ще до `alembic upgrade` | Job ніхто не запускав — CI перевіряв лише `kustomize` | v1.13 |
+| Охорона шаблонних секретів була **мертвою** | перевірка порівнювала `app_env == "production"`, а і compose-prod, і k8s-ConfigMap виставляють `APP_ENV: prod`. Тобто жоден реальний прод не проходив ані JWT, ані `admin/admin` | тести користувалися рядком `"production"` — перевіряли не те значення, що в прод-конфігах | v1.13 |
+| UI в k8s відкривався порожнім | `NEXT_PUBLIC_API_URL` вписується в бандл під час `next build`; образ збирався без `.env` | старий E2E робив один `curl /health` | v1.14 |
+| Кожен запит браузера блокувався CORS | у k8s UI живе на NodePort `30010`, а `CORS_ORIGINS` містив лише `http://localhost:3000` | `curl` не надсилає `Origin` — попередній E2E цього бачити не міг | v1.14 |
+| Адміністратора **не існувало** | pod `auth` піднімається одночасно з міграціями, тож таблиці `users` ще немає; сид падав із `ConnectionRefusedError`, помилку ковтали, а в коментарі було «наступний рестарт добере решту» — рестарту не планувалося | усі поді `Running`, `/health` зелений, а увійти неможливо; `admin_seed_failed` губиться серед помилок старту | v1.14 |
+| `KeyError` у лозі сида | `extra={"created": ...}` — зарезервоване поле `LogRecord`; `logging` піднімає на ньому `KeyError`, тобто впав би увесь сид, а не просто не залогувався | знайдено при написанні тестів на сид | v1.14 |
+| compose-prod не мав міграцій | `make up-prod` їх не виконує, а `make migrate` — це `alembic` на хості; на чистій машині таблиць немає, `/health` каже `ok`, сид мовчки падає | стенд проходив лише `docker compose config -q` | v1.15 |
+| Опублікований образ прив'язаний до адреси збірки | `docker.yml` збирав frontend із `build-args: NEXT_PUBLIC_API_URL=http://localhost:8000` і публікував у GHCR | кожен, хто візь `cyberops-frontend:dev`, отримує UI, який ходить у `localhost` свого браузера | v1.15 |
+| Таргет Prometheus `jaeger:14269` завжди `DOWN` | Service `jaeger` експортував лише `4318` і `16686`; Prometheus ходить на Service-адресу, тож неоголошений порт недоступний | `kustomize`/compose приймають; статус таргетів не читав ніхто, у Grafana це порожня панель | v1.16 |
+| `jaeger` поза rollout-циклом E2E | цикл `for d in ...` у `deploy.yml` містив 10 імен, а в base їх 11 | колектор міг не піднятися, а E2E був зелений: усі сервіси надсилали OTLP-спани в те, чого нема | v1.16 |
+| k8s-Grafana з `admin/admin` | `GF_SECURITY_ADMIN_PASSWORD: admin` літералом у `grafana.yaml`, при тому що compose-prod вимагав обов'язковий пароль; Service на `nodePort 30300` | охорона була лише в compose-шляху й мертва в k8s-шляху | v1.16 |
+| `core` і `auth` не відправляли в Jaeger **жодного** спана | `setup_tracing(app)` викликався з `lifespan`, але Starlette будує стек middleware на першому ASGI-виклику, тобто раніше, а `instrument_app()` лише підміняє `build_middleware_stack` і сам її не викликає | жодного винятку, сервіс здоровий і `/health` зелений; наявні тести трасування інструментували **свіжий** app до першого запиту — інший порядок, ніж у проді; `gateway` працював, бо інструментується не через FastAPI, і маскував пустоту | v1.16 |
+
+### Чому всі ці баги проіснули
+
+- **Статична перевірка ≠ перевірка семантики.** `kubectl kustomize` і
+  `docker compose config` доводять, що YAML валідний; pull-policy, реальні
+  порти Service, порядок залежностей і значення змінних для кубера живуть в
+  іншому шарі.
+- **Тест, який підтверджує себе сам, гірший за відсутність тесту.** Очікувані
+  значення в E2E беруться з розгорнутого кластера/ConfigMap/Secret, а не з
+  константи в самому тесті, інакше він зелений рівно тоді, коли змінна не
+  доїде.
+- **«Процеси піднялися» і «системою можна скористатися» — різні твердження.**
+  Старий smoke-тест був зелений тричі поспіль на стенді, у якому ніхто не
+  міг увійти.
+- **Діагностика — перший крок, а не останній.** Логи живуть у кластері, а не в
+  лозі запуску; без кроку `Diagnostics` наступна сесія вгадує причину. Так
+  знайшли колізію `GATEWAY_PORT` — перша, хибна версія причини
+  (`livenessProbe`) була перевірена й не підтвердилася.
+- **Один скрипт на два стенди.** Копія smoke-тесту в двох воркфлоу розходиться
+  з першою ж правкою, а далі «CI зелений» перестає щось означати.
+
+> Інваріанти на весь клас багів живуть у `backend/tests/test_k8s_manifests.py`
+> (колізії імен із Service, порти таргетів, залежності `envFrom`/`secretRef`,
+> семантика, яку не ловить kustomize) і `test_compose_exposure.py` (що світиться
+> назовні, обов'язковість секретів, порядок запуску compose-prod). Кожен
+> перевірено у реверсі — на відкачених правках відповідні тести падають.
+
+Детальний хронологічний розбір кожної версії — у `docs/roadmap.md`.
 
