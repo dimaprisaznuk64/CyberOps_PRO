@@ -304,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 245 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 250 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy `--pkg-types library` — усі три блокуючі, без умовних кроків |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -323,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 245 тестів
+python -m pytest tests -q                 # 250 тестів
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -912,6 +912,14 @@ docker compose --profile mail up -d
      зникли б;
    - воркер викликає `init_tracing()` при імпорті (у Celery немає FastAPI-апу,
      але `scan.run` створюється вручну);
+   - **trace context переживає чергу (v1.21)**: Celery не переносить його сам
+     (повідомлення їде в Redis як JSON, а не як HTTP-заголовки), тож
+     `enqueue_scan` кладе W3C `traceparent` у `headers` повідомлення, а
+     `run_scan` читає його з `self.request.headers` і передає батька в
+     `_run_scan`. Без цього `scan.run` відкривав власний трейс — слід
+     розривався на два, і в UI не було переходу від «користувач натиснув
+     скан» до «що зробив nmap». Повідомлення без контексту лишається
+     виконуваним: тоді спан просто стає коренем;
    - інструментація httpx глобальна й лишається на весь процес — у production
      `setup_tracing()` викликається один раз при старті, у тестах це враховано
      в `tests/test_gateway_tracing.py`;
