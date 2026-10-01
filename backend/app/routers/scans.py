@@ -64,7 +64,7 @@ async def create_scan(
 ):
     if not payload.validate_scan_type():
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Невалідний тип сканування (ping|tcp|quick)",
         )
     asset = await session.get(Asset, payload.asset_id)
@@ -74,7 +74,7 @@ async def create_scan(
         try:
             assert_host_allowed(asset.host)
         except HostNotAllowedError as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
     scan = Scan(
         asset_id=asset.id,

@@ -23,7 +23,7 @@ async def list_findings(
 ):
     if severity is not None and severity not in SEVERITIES:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Невалідна серйозність (info|low|medium|high|critical)",
         )
     query = select(Finding).order_by(Finding.id.desc())

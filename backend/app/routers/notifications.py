@@ -55,7 +55,7 @@ async def list_notifications(
     session: AsyncSession = Depends(get_session),
 ):
     if channel is not None and channel not in CHANNELS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Невідомий канал")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Невідомий канал")
     query = (
         select(Notification)
         .where(Notification.user_id == user.id)
@@ -83,7 +83,7 @@ async def update_preferences(
     data = payload.model_dump(exclude_unset=True)
     severity = data.get("notify_min_severity")
     if severity is not None and severity not in NOTIFY_SEVERITIES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Невалідний рівень важливості")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Невалідний рівень важливості")
 
     new_email = data.get("email")
     if new_email:

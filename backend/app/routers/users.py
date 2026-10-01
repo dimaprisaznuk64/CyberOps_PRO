@@ -39,7 +39,7 @@ async def update_user(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Користувача не знайдено")
     data = payload.model_dump(exclude_unset=True)
     if "role" in data and not validate_role(data["role"]):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Невалідна роль")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Невалідна роль")
     for k, v in data.items():
         setattr(user, k, v)
     await session.commit()
@@ -55,7 +55,7 @@ async def change_role(
     session: AsyncSession = Depends(get_session),
 ):
     if not validate_role(payload.role):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Невалідна роль")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Невалідна роль")
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Користувача не знайдено")

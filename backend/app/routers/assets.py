@@ -37,7 +37,7 @@ def _host_check(kind: str, host: str) -> None:
     try:
         assert_host_allowed(host)
     except HostNotAllowedError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
 
 async def _get_owned_asset(

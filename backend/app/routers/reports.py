@@ -80,12 +80,12 @@ async def create_report(
 ):
     if not payload.validate_report_type():
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Невірний тип звіту (asset|scan)"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Невірний тип звіту (asset|scan)"
         )
     if payload.report_type == REPORT_TYPE_ASSET and payload.asset_id is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Потрібен asset_id")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Потрібен asset_id")
     if payload.report_type == REPORT_TYPE_SCAN and payload.scan_id is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Потрібен scan_id")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Потрібен scan_id")
 
     await _assert_report_target_allowed(
         session, _, payload.report_type, payload.asset_id, payload.scan_id
@@ -155,7 +155,7 @@ async def export_report(
 ):
     if format not in EXPORT_FORMATS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Формат має бути одним з: {', '.join(EXPORT_FORMATS)}",
         )
     report = await _get_report_or_404(report_id, user, session)
