@@ -56,8 +56,6 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
-    env:
-      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -101,16 +99,22 @@ jobs:
           trivy fs --scanners vuln --pkg-types library --severity HIGH,CRITICAL \
             --ignore-unfixed --exit-code 1 .
 
-      - name: Semgrep (SAST у бекенді)
-        # запускається лише якщо задані креди бот-акаунта Semgrep.
-        # Контекст secrets недоступний у кроковому if (лише в job-level if та
-        # env), тому secret спершу потрапляє в env, а вже потім перевіряється.
-        if: ${{ env.SEMGREP_APP_TOKEN != '' }}
-        uses: semgrep/semgrep-action@v1
-        with:
-          config: p/ci
-        env:
-          SEMGREP_RULES: p/ci
+      # Semgrep (SAST з правилами p/ci) тут БУВ і ніколи не запускався.
+      #
+      # Крок стояв під `if: env.SEMGREP_APP_TOKEN != ''`, а секрету в
+      # репозиторії немає взагалі (`gh secret list` порожній). Тобто кожен
+      # прогін мав `Semgrep: skipped` при зеленому job — ще одна перевірка,
+      # яка ніколи не перевіряла нічого, поруч із тією, що тричі поспіль
+      # ховалась у цьому ж проекті (v1.17 admin-порт, v1.18 E2D-стенд,
+      # v1.19 Trivy на неіснуючому флагі).
+      #
+      # Прибрано, а не залишено «на потім»: краще відсутня перевірка, ніж
+      # перевірка, яка створює враження, що SAST у бекенді є. Bandit нижче
+      # запускається завжди і реально сканує ~4400 рядків.
+      #
+      # Щоб повернути Semgrep: створити бота, покласти SEMGREP_APP_TOKEN у
+      # secrets і додати крок БЕЗ `if` — тоді невиконання падатиме, а не
+      # мовчатиме.
 
   frontend:
     runs-on: ubuntu-latest

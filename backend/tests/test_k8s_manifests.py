@@ -803,6 +803,62 @@ def test_trivy_uses_a_package_type_it_supports() -> None:
     )
 
 
+# Кроки, яким умова на `if` дозволена: diagnostic/cleanup, які мусять
+# виконуватись навіть після падіння попереднього кроку. Для security-job
+# такого немає — там будь-яка умова означає «може не запуститись».
+_ALWAYS_RUNNABLE = re.compile(r"^\s*(always\(\)|success\(\))\s*$")
+
+
+def test_no_security_check_can_silently_skip() -> None:
+    """Жоден крок у job `security` не має умовного `if`.
+
+    Регресія: Semgrep стояв під `if: env.SEMGREP_APP_TOKEN != ''`, а
+    секрету в репозиторії немає взагалі. Кожен прогін мав `skipped` при
+    зеленому job — четверта поспіль «перевірка, яка ніколи не перевіряла»
+    після admin-порту Jaeger, E2E-стенду й Trivy на неіснуючому флагі.
+
+    Логіка: якщо перевірка безпеки може не виконатись, її відсутність
+    непомітна — тож вона не відрізняється від перевірки, якої немає.
+    Дозволено лише безумовні кроки.
+    """
+    ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    security = (ci.get("jobs") or {}).get("security") or {}
+
+    conditional = []
+    for step in security.get("steps") or []:
+        cond = step.get("if")
+        if cond is None:
+            continue
+        if _ALWAYS_RUNNABLE.match(str(cond)):
+            continue
+        conditional.append((step.get("name", "?"), str(cond)))
+
+    assert conditional == [], (
+        f"перевірки безпеки можуть мовчки пропуститись: {conditional}. "
+        "Крок під умовою не виконується непомітно — або запускайте без "
+        "`if`, щоб падіння було видимим, або приберіть його"
+    )
+
+
+def test_security_job_has_the_checks_it_claims() -> None:
+    """Job `security` мусить реально містити SAST і сканування CVE.
+
+    Слабше за попередній інваріант: він не знає, *яких* перевірок мало б
+    бути, і не помітив би, якби їх випадково витерли. Тут перелік явний,
+    тож зникнення кроку — це зміна, яку видно в diff.
+    """
+    ci = yaml.safe_load((WORKFLOWS / "ci.yml").read_text(encoding="utf-8"))
+    security = (ci.get("jobs") or {}).get("security") or {}
+    body = yaml.safe_dump(security, allow_unicode=True).lower()
+
+    for label, needle in (
+        ("SAST (bandit)", "bandit"),
+        ("CVE у Python-залежностях (pip-audit)", "pip-audit"),
+        ("CVE наскрізно (trivy)", "trivy"),
+    ):
+        assert needle in body, f"у job security зникла перевірка: {label}"
+
+
 def test_smoke_script_checks_observability_not_just_the_app() -> None:
     """Стенд мусить доводити, що моніторинг бачить систему, а не лише що
     бекенд відповідає.
