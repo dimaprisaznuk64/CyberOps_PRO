@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { Nav } from "@/components/Nav";
 import { AuthProvider } from "@/lib/auth";
+import { I18nProvider } from "@/lib/i18n";
 
 import "./globals.css";
 
@@ -24,10 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script src="/runtime-config.js" />
       </head>
       <body>
-        <AuthProvider>
-          <Nav />
-          <main>{children}</main>
-        </AuthProvider>
+        <I18nProvider>
+          <AuthProvider>
+            <Nav />
+            <main>{children}</main>
+          </AuthProvider>
+        </I18nProvider>
       </body>
     </html>
   );

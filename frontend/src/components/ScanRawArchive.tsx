@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { download, get } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { NmapHost, NmapScript, ScanRaw } from "@/lib/types";
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} МБ`;
+function formatBytes(bytes: number, units: { b: string; kb: string; mb: string }): string {
+  if (bytes < 1024) return `${bytes} ${units.b}`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${units.kb}`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} ${units.mb}`;
 }
 
 function ScriptList({ scripts, label }: { scripts: NmapScript[]; label: string }) {
@@ -32,6 +33,7 @@ function ScriptList({ scripts, label }: { scripts: NmapScript[]; label: string }
 }
 
 function HostCard({ host }: { host: NmapHost }) {
+  const { t } = useI18n();
   const names = host.hostnames?.length ? host.hostnames : [{ name: host.hostname, type: "" }];
   return (
     <div className="panel" style={{ marginBottom: 12 }}>
@@ -54,7 +56,7 @@ function HostCard({ host }: { host: NmapHost }) {
               {n.type && <span className="muted"> ({n.type})</span>}
             </div>
           ))}
-        {!names.some((n) => n.name) && <div className="muted">hostname не визначено</div>}
+        {!names.some((n) => n.name) && <div className="muted">{t("raw.hostnameUnknown")}</div>}
         {(host.uptime || host.distance) && (
           <div className="muted">
             {host.uptime && `uptime ${host.uptime}s`}
@@ -68,9 +70,9 @@ function HostCard({ host }: { host: NmapHost }) {
         <table>
           <thead>
             <tr>
-              <th>OS-відпечаток</th>
-              <th>Сімейство</th>
-              <th>Точність</th>
+              <th>{t("raw.osFingerprint")}</th>
+              <th>{t("raw.family")}</th>
+              <th>{t("raw.accuracy")}</th>
             </tr>
           </thead>
           <tbody>
@@ -86,15 +88,15 @@ function HostCard({ host }: { host: NmapHost }) {
       )}
 
       {host.host_scripts && host.host_scripts.length > 0 && (
-        <ScriptList scripts={host.host_scripts} label="Хост-скрипти:" />
+        <ScriptList scripts={host.host_scripts} label={t("raw.hostScripts")} />
       )}
 
       {host.ports.length > 0 && (
         <table>
           <thead>
             <tr>
-              <th>Порт</th>
-              <th>Сервіс</th>
+              <th>{t("raw.colPort")}</th>
+              <th>{t("raw.colService")}</th>
               <th>NSE</th>
             </tr>
           </thead>
@@ -127,6 +129,7 @@ function HostCard({ host }: { host: NmapHost }) {
 }
 
 export function ScanRawArchive({ scanId, status }: { scanId: number; status?: string }) {
+  const { t } = useI18n();
   const [raw, setRaw] = useState<ScanRaw | null>(null);
   const [xml, setXml] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -141,12 +144,12 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
         if (!cancelled) setRaw(data);
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Помилка");
+        if (!cancelled) setError(e instanceof Error ? e.message : t("common.error"));
       });
     return () => {
       cancelled = true;
     };
-  }, [scanId]);
+  }, [scanId, t]);
 
   const showXml = useCallback(async () => {
     setBusy(true);
@@ -156,11 +159,11 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
       setRaw(data);
       setXml(data.xml);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     } finally {
       setBusy(false);
     }
-  }, [scanId]);
+  }, [scanId, t]);
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -168,23 +171,24 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
     try {
       await download(`/api/v1/scans/${scanId}/raw.xml`, `nmap-scan-${scanId}.xml`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Не вдалося завантажити файл");
+      setError(e instanceof Error ? e.message : t("raw.downloadFailed"));
     } finally {
       setBusy(false);
     }
-  }, [scanId]);
+  }, [scanId, t]);
 
   const filename = `nmap-scan-${scanId}.xml`;
 
   return (
     <div className="panel">
-      <h3>Сирий Nmap-архів</h3>
+      <h3>{t("raw.title")}</h3>
       {error && <div className="error">{error}</div>}
 
       {raw && !raw.available && (
         <div className="empty">
-          Сирого Nmap-звіту немає{status ? ` (статус сканування: ${status})` : ""}. Архів
-          з’являється після завершення сканування.
+          {t("raw.notAvailable")}
+          {status ? t("raw.notAvailableStatus", { status }) : ""}
+          {t("raw.notAvailableTail")}
         </div>
       )}
 
@@ -192,18 +196,22 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
         <>
           <div className="form-row">
             <div>
-              <label>Nmap</label>
-              <div className="small">{raw.nmap_version || "невідомо"}</div>
+              <label>{t("raw.nmap")}</label>
+              <div className="small">{raw.nmap_version || t("raw.unknown")}</div>
             </div>
             <div>
-              <label>Розмір</label>
+              <label>{t("raw.size")}</label>
               <div className="small">
-                {formatBytes(raw.size_bytes)}
+                {formatBytes(raw.size_bytes, {
+                  b: t("raw.bytes.b"),
+                  kb: t("raw.bytes.kb"),
+                  mb: t("raw.bytes.mb"),
+                })}
                 {raw.compressed && <span className="muted"> · gzip</span>}
               </div>
             </div>
             <div>
-              <label>Хостів</label>
+              <label>{t("raw.hosts")}</label>
               <div className="small">{raw.hosts_count}</div>
             </div>
             <div>
@@ -224,12 +232,14 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
             <div className="small muted" style={{ marginBottom: 8 }}>
               {raw.parsed.scaninfo.type}/{raw.parsed.scaninfo.protocol}
               {raw.parsed.scaninfo.num_services
-                ? ` · ${raw.parsed.scaninfo.num_services} портів`
+                ? ` · ${t("raw.portsCount", { count: raw.parsed.scaninfo.num_services })}`
                 : ""}
               {raw.parsed.stats?.hosts_total !== undefined &&
-                ` · up ${raw.parsed.stats.hosts_up ?? 0} / down ${
-                  raw.parsed.stats.hosts_down ?? 0
-                } з ${raw.parsed.stats.hosts_total}`}
+                ` · ${t("raw.stats", {
+                  up: raw.parsed.stats.hosts_up ?? 0,
+                  down: raw.parsed.stats.hosts_down ?? 0,
+                  total: raw.parsed.stats.hosts_total,
+                })}`}
               {raw.parsed.stats?.elapsed ? ` · ${raw.parsed.stats.elapsed}s` : ""}
             </div>
           )}
@@ -241,28 +251,25 @@ export function ScanRawArchive({ scanId, status }: { scanId: number; status?: st
           <div className="form-row" style={{ marginTop: 8, marginBottom: 0 }}>
             <div style={{ flex: "0 0 auto" }}>
               <button className="ghost sm" onClick={save} disabled={busy}>
-                ⬇ Завантажити .xml
+                {t("raw.downloadXml")}
               </button>
             </div>
             <div style={{ flex: "0 0 auto" }}>
               <button className="ghost sm" onClick={showXml} disabled={busy || !!xml}>
-                {busy ? "Завантаження…" : xml ? "XML показано" : "Показати сирий XML"}
+                {busy ? t("raw.downloading") : xml ? t("raw.xmlShown") : t("raw.showXml")}
               </button>
             </div>
-            {raw.truncated && (
-              <div className="small muted">
-                XML завеликий для сторінки — повний файл лише у .xml
-              </div>
-            )}
+            {raw.truncated && <div className="small muted">{t("raw.truncated")}</div>}
           </div>
 
           {xml && <pre className="codeblock">{xml}</pre>}
         </>
       )}
 
-      {!raw && !error && <div className="empty">Завантаження архіву…</div>}
+      {!raw && !error && <div className="empty">{t("raw.loadingArchive")}</div>}
       <div className="small muted" style={{ marginTop: 6 }}>
-        Файл: <code>{filename}</code>
+        {t("raw.file")}
+        <code>{filename}</code>
       </div>
     </div>
   );

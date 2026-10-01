@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 
 export default function LoginPage() {
   const { login, session, ready } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -25,7 +27,7 @@ export default function LoginPage() {
       await login(username, password);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка входу");
+      setError(err instanceof Error ? err.message : t("login.error"));
     } finally {
       setBusy(false);
     }
@@ -33,12 +35,12 @@ export default function LoginPage() {
 
   return (
     <div className="panel" style={{ maxWidth: 420, margin: "40px auto" }}>
-      <h3>Вхід</h3>
+      <h3>{t("login.title")}</h3>
       {error && <div className="error">{error}</div>}
       <form onSubmit={submit}>
-        <label>Username</label>
+        <label>{t("login.username")}</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-        <label>Password</label>
+        <label>{t("login.password")}</label>
         <input
           type="password"
           value={password}
@@ -46,12 +48,12 @@ export default function LoginPage() {
         />
         <div style={{ marginTop: 14 }}>
           <button type="submit" disabled={busy || !username || !password}>
-            {busy ? "Вхід…" : "Увійти"}
+            {busy ? t("login.busy") : t("login.submit")}
           </button>
         </div>
       </form>
       <p className="small muted" style={{ marginTop: 14 }}>
-        Немає акаунта? <a href="/register">Зареєструватися</a>
+        {t("login.noAccount")} <a href="/register">{t("login.registerLink")}</a>
       </p>
     </div>
   );

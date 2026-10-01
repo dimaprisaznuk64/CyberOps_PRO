@@ -5,25 +5,27 @@ import { useCallback, useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { get, patch, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 import type { NotificationChannel, NotificationPreferences, NotifySeverity } from "@/lib/types";
 
 const SEVERITIES: NotifySeverity[] = ["info", "low", "medium", "high", "critical"];
 
-const SEVERITY_HINT: Record<NotifySeverity, string> = {
-  info: "усі сповіщення",
-  low: "від низького ризику",
-  medium: "від середнього ризику",
-  high: "лише високий і критичний",
-  critical: "лише критичний",
-};
-
 export default function SettingsPage() {
   const { session, logout } = useAuth();
+  const { t } = useI18n();
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const severityHint: Record<NotifySeverity, string> = {
+    info: t("settings.hint.info"),
+    low: t("settings.hint.low"),
+    medium: t("settings.hint.medium"),
+    high: t("settings.hint.high"),
+    critical: t("settings.hint.critical"),
+  };
 
   const [prefs, setPrefs] = useState<NotificationPreferences | null>(null);
   const [email, setEmail] = useState("");
@@ -43,9 +45,9 @@ export default function SettingsPage() {
       setNotifyTelegram(data.notify_telegram);
       setMinSeverity(data.notify_min_severity);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadPrefs();
@@ -61,11 +63,11 @@ export default function SettingsPage() {
         old_password: oldPassword,
         new_password: newPassword,
       });
-      setMessage("Пароль змінено");
+      setMessage(t("settings.passwordChanged"));
       setOldPassword("");
       setNewPassword("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     } finally {
       setBusy(false);
     }
@@ -87,9 +89,9 @@ export default function SettingsPage() {
         },
       );
       setPrefs(data);
-      setMessage("Налаштування сповіщень збережено");
+      setMessage(t("settings.prefsSaved"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     }
   };
 
@@ -99,9 +101,9 @@ export default function SettingsPage() {
     setTesting(channel);
     try {
       await post("/api/v1/notifications/test", { channel });
-      setMessage(`Тестове повідомлення надіслано в ${channel.toUpperCase()}`);
+      setMessage(t("settings.testSent", { channel: channel.toUpperCase() }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     } finally {
       setTesting(null);
     }
@@ -109,20 +111,20 @@ export default function SettingsPage() {
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Settings</h2>
+      <h2 className="page-title">{t("settings.title")}</h2>
       {error && <div className="error">{error}</div>}
 
       <div className="grid cols-2">
         <div className="panel">
-          <h3>Профіль</h3>
+          <h3>{t("settings.profile")}</h3>
           <table>
             <tbody>
               <tr>
-                <td>Користувач</td>
+                <td>{t("settings.user")}</td>
                 <td>{session?.username}</td>
               </tr>
               <tr>
-                <td>Роль</td>
+                <td>{t("settings.role")}</td>
                 <td>
                   <span className="pill neutral">{session?.role}</span>
                 </td>
@@ -130,23 +132,23 @@ export default function SettingsPage() {
             </tbody>
           </table>
           <button className="ghost" onClick={logout} style={{ marginTop: 12 }}>
-            Вийти
+            {t("settings.logout")}
           </button>
         </div>
 
         <div className="panel">
-          <h3>Зміна пароля</h3>
+          <h3>{t("settings.changePassword")}</h3>
           {message && <div style={{ color: "#37d29a", margin: "6px 0" }}>{message}</div>}
           {error && <div className="error">{error}</div>}
           <form onSubmit={submit}>
-            <label>Поточний пароль</label>
+            <label>{t("settings.oldPassword")}</label>
             <input
               type="password"
               value={oldPassword}
               onChange={(e) => setOldPassword(e.target.value)}
               required
             />
-            <label>Новий пароль (мін. 8)</label>
+            <label>{t("settings.newPassword")}</label>
             <input
               type="password"
               value={newPassword}
@@ -155,17 +157,17 @@ export default function SettingsPage() {
             />
             <div style={{ marginTop: 14 }}>
               <button type="submit" disabled={busy || newPassword.length < 8}>
-                {busy ? "Зберігаємо…" : "Змінити пароль"}
+                {busy ? t("settings.savingPassword") : t("settings.savePassword")}
               </button>
             </div>
           </form>
         </div>
 
         <div className="panel">
-          <h3>Канали сповіщень</h3>
+          <h3>{t("settings.channels")}</h3>
           {message && <div style={{ color: "#37d29a", margin: "6px 0" }}>{message}</div>}
           {!prefs ? (
-            <div className="empty">Завантаження…</div>
+            <div className="empty">{t("common.loading")}</div>
           ) : (
             <form onSubmit={savePrefs}>
               <label>Email</label>
@@ -175,20 +177,20 @@ export default function SettingsPage() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="sec@example.com"
               />
-              <label>Telegram chat id</label>
+              <label>{t("settings.telegramChat")}</label>
               <input
                 value={chatId}
                 onChange={(e) => setChatId(e.target.value)}
                 placeholder="-1001234567890"
               />
-              <label>Мінімальний рівень</label>
+              <label>{t("settings.minSeverity")}</label>
               <select
                 value={minSeverity}
                 onChange={(e) => setMinSeverity(e.target.value as NotifySeverity)}
               >
                 {SEVERITIES.map((s) => (
                   <option key={s} value={s}>
-                    {s} — {SEVERITY_HINT[s]}
+                    {s} — {severityHint[s]}
                   </option>
                 ))}
               </select>
@@ -201,7 +203,10 @@ export default function SettingsPage() {
                     onChange={(e) => setNotifyEmail(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  <span>Email {prefs.email_available ? "" : "(вимкнено на сервері)"}</span>
+                  <span>
+                    Email{" "}
+                    {prefs.email_available ? "" : t("settings.disabledOnServer")}
+                  </span>
                 </label>
                 <label style={{ display: "flex", gap: 6, alignItems: "center", margin: 0 }}>
                   <input
@@ -210,25 +215,30 @@ export default function SettingsPage() {
                     onChange={(e) => setNotifyTelegram(e.target.checked)}
                     style={{ width: "auto" }}
                   />
-                  <span>Telegram {prefs.telegram_available ? "" : "(вимкнено на сервері)"}</span>
+                  <span>
+                    Telegram{" "}
+                    {prefs.telegram_available ? "" : t("settings.disabledOnServer")}
+                  </span>
                 </label>
               </div>
 
               <p className="muted" style={{ marginBottom: 0 }}>
-                Дієвий поріг: <b>{prefs.effective_min_severity}</b>. Серверний поріг{" "}
-                <b>{prefs.server_min_severity}</b> — нижче нього не надсилаємо, тож ваш вибір
-                спрацює лише якщо він суворіший.
+                {t("settings.effectivePrefix")}
+                <b>{prefs.effective_min_severity}</b>
+                {t("settings.effectiveMiddle")}
+                <b>{prefs.server_min_severity}</b>
+                {t("settings.effectiveSuffix")}
               </p>
 
               <div style={{ marginTop: 14, display: "flex", gap: 8 }}>
-                <button type="submit">Зберегти</button>
+                <button type="submit">{t("settings.save")}</button>
                 <button
                   type="button"
                   className="ghost"
                   disabled={!prefs.email_available || !email.trim() || testing !== null}
                   onClick={() => sendTest("email")}
                 >
-                  {testing === "email" ? "Надсилаємо…" : "Тест Email"}
+                  {testing === "email" ? t("settings.sending") : t("settings.testEmail")}
                 </button>
                 <button
                   type="button"
@@ -236,7 +246,7 @@ export default function SettingsPage() {
                   disabled={!prefs.telegram_available || !chatId.trim() || testing !== null}
                   onClick={() => sendTest("telegram")}
                 >
-                  {testing === "telegram" ? "Надсилаємо…" : "Тест Telegram"}
+                  {testing === "telegram" ? t("settings.sending") : t("settings.testTelegram")}
                 </button>
               </div>
             </form>

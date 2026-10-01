@@ -6,6 +6,7 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { RiskPill } from "@/components/Pills";
 import { del, get, patch, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 import type { Asset, AssetKind } from "@/lib/types";
 
 const EMPTY = { name: "", host: "", kind: "ip" as AssetKind, docker_container: "", description: "" };
@@ -25,13 +26,14 @@ function sortAssets(assets: Asset[], sortBy: SortBy): Asset[] {
   return sorted;
 }
 
-function formatDate(value?: string | null): string {
+function formatDate(value: string | null | undefined, locale: string): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString("uk-UA", { dateStyle: "short", timeStyle: "short" });
+  return new Date(value).toLocaleString(locale, { dateStyle: "short", timeStyle: "short" });
 }
 
 export default function AssetsPage() {
   const { session } = useAuth();
+  const { t, locale } = useI18n();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [form, setForm] = useState(EMPTY);
   const [editId, setEditId] = useState<number | null>(null);
@@ -44,7 +46,7 @@ export default function AssetsPage() {
     try {
       setAssets(await get<Asset[]>("/api/v1/assets"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
   }, []);
 
@@ -73,14 +75,14 @@ export default function AssetsPage() {
       setEditId(null);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     } finally {
       setBusy(false);
     }
   };
 
   const remove = async (id: number) => {
-    if (!window.confirm("Видалити актив?")) return;
+    if (!window.confirm(t("assets.confirmDelete"))) return;
     await del(`/api/v1/assets/${id}`);
     await load();
   };
@@ -98,15 +100,15 @@ export default function AssetsPage() {
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Assets</h2>
+      <h2 className="page-title">{t("assets.title")}</h2>
 
       <div className="panel">
-        <h3>{editId !== null ? `Редагувати #${editId}` : "Новий актив"}</h3>
+        <h3>{editId !== null ? t("assets.edit", { id: editId }) : t("assets.new")}</h3>
         {error && <div className="error">{error}</div>}
         <form onSubmit={submit}>
           <div className="form-row">
             <div>
-              <label>Назва</label>
+              <label>{t("assets.name")}</label>
               <input
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -114,16 +116,16 @@ export default function AssetsPage() {
               />
             </div>
             <div>
-              <label>Host</label>
+              <label>{t("assets.host")}</label>
               <input
                 value={form.host}
                 onChange={(e) => setForm({ ...form, host: e.target.value })}
-                placeholder="192.168.1.100 / example.com / vulnerable-api"
+                placeholder={t("assets.hostPlaceholder")}
                 required
               />
             </div>
             <div>
-              <label>Тип</label>
+              <label>{t("assets.kind")}</label>
               <select
                 value={form.kind}
                 onChange={(e) => setForm({ ...form, kind: e.target.value as AssetKind })}
@@ -135,7 +137,7 @@ export default function AssetsPage() {
               </select>
             </div>
             <div>
-              <label>Docker container (optional)</label>
+              <label>{t("assets.docker")}</label>
               <input
                 value={form.docker_container}
                 onChange={(e) =>
@@ -146,7 +148,7 @@ export default function AssetsPage() {
           </div>
           <div className="form-row">
             <div>
-              <label>Опис</label>
+              <label>{t("assets.description")}</label>
               <input
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
@@ -154,7 +156,7 @@ export default function AssetsPage() {
             </div>
           </div>
           <button type="submit" disabled={busy || !form.name || !form.host}>
-            {editId !== null ? "Зберегти зміни" : "Створити"}
+            {editId !== null ? t("assets.saveChanges") : t("assets.create")}
           </button>
           {editId !== null && (
             <button
@@ -166,37 +168,37 @@ export default function AssetsPage() {
                 setForm(EMPTY);
               }}
             >
-              Скасувати
+              {t("common.cancel")}
             </button>
           )}
         </form>
       </div>
 
       <div className="panel">
-        <h3>Список ({assets.length})</h3>
+        <h3>{t("assets.list", { count: assets.length })}</h3>
         <div className="form-row">
           <div style={{ flex: "0 0 220px" }}>
-            <label>Сортування</label>
+            <label>{t("assets.sort")}</label>
             <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)}>
-              <option value="risk">за ризиком</option>
-              <option value="name">за назвою</option>
-              <option value="id">за ID</option>
+              <option value="risk">{t("assets.sortRisk")}</option>
+              <option value="name">{t("assets.sortName")}</option>
+              <option value="id">{t("assets.sortId")}</option>
             </select>
           </div>
         </div>
-        {assets.length === 0 && <div className="empty">Немає активів</div>}
+        {assets.length === 0 && <div className="empty">{t("assets.none")}</div>}
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Назва</th>
-              <th>Host</th>
-              <th>Тип</th>
-              <th>Docker</th>
-              <th>Ризик</th>
-              <th>Історія</th>
-              <th>Скани</th>
-              <th>Дії</th>
+              <th>{t("common.id")}</th>
+              <th>{t("assets.colName")}</th>
+              <th>{t("assets.host")}</th>
+              <th>{t("assets.kind")}</th>
+              <th>{t("assets.colDocker")}</th>
+              <th>{t("common.risk")}</th>
+              <th>{t("assets.colHistory")}</th>
+              <th>{t("assets.colScans")}</th>
+              <th>{t("assets.colActions")}</th>
             </tr>
           </thead>
           <tbody>
@@ -211,7 +213,7 @@ export default function AssetsPage() {
                 <td className="muted small">{a.docker_container ?? "—"}</td>
                 <td>
                   {a.risk_score === null || a.risk_score === undefined ? (
-                    <span className="pill neutral">не скановано</span>
+                    <span className="pill neutral">{t("assets.notScanned")}</span>
                   ) : (
                     <>
                       <RiskPill risk={a.risk_level} />{" "}
@@ -221,20 +223,25 @@ export default function AssetsPage() {
                 </td>
                 <td className="small muted">
                   {a.max_risk_score !== null && a.max_risk_score !== undefined && (
-                    <div>макс {a.max_risk_score} ({a.max_risk_level})</div>
+                    <div>
+                      {t("assets.max", {
+                        score: a.max_risk_score,
+                        level: a.max_risk_level ?? "",
+                      })}
+                    </div>
                   )}
-                  <div>останній: {formatDate(a.last_scan_at)}</div>
+                  <div>{t("assets.last", { date: formatDate(a.last_scan_at, locale) })}</div>
                 </td>
                 <td className="small">{a.scans_count ?? 0}</td>
                 <td>
                   {canManage && (
                     <button className="sm ghost" onClick={() => startEdit(a)}>
-                      Edit
+                      {t("common.edit")}
                     </button>
                   )}{" "}
                   {canManage && (
                     <button className="sm danger" onClick={() => remove(a.id)}>
-                      Del
+                      {t("common.delete")}
                     </button>
                   )}
                 </td>

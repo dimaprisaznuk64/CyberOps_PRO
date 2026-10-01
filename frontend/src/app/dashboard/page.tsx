@@ -7,10 +7,12 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { RiskPill, StatusPill } from "@/components/Pills";
 import { StatCard } from "@/components/StatCard";
 import { get } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { DashboardStats, Health } from "@/lib/types";
 import { useRealtime } from "@/lib/ws";
 
 export default function DashboardPage() {
+  const { t } = useI18n();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [health, setHealth] = useState<Health | null>(null);
   const { events, connected } = useRealtime();
@@ -30,17 +32,17 @@ export default function DashboardPage() {
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Dashboard</h2>
+      <h2 className="page-title">{t("dashboard.title")}</h2>
 
       <div className="grid cols-4">
-        <StatCard label="Активи" value={stats?.total_assets ?? "—"} />
+        <StatCard label={t("dashboard.assets")} value={stats?.total_assets ?? "—"} />
         <StatCard
-          label="Непрочитані сповіщення"
+          label={t("dashboard.unread")}
           value={stats?.unread_notifications ?? "—"}
           tone={stats?.unread_notifications ? "#ffc86b" : undefined}
         />
         <StatCard
-          label="Скани з високим ризиком"
+          label={t("dashboard.highRisk")}
           value={stats?.high_risk_scans ?? "—"}
           tone={stats?.high_risk_scans ? "#ff6b7a" : undefined}
         />
@@ -49,8 +51,8 @@ export default function DashboardPage() {
 
       <div className="grid cols-2">
         <div className="panel">
-          <h3>Статус системи</h3>
-          {!health && <div className="muted">Завантаження…</div>}
+          <h3>{t("dashboard.systemStatus")}</h3>
+          {!health && <div className="muted">{t("common.loading")}</div>}
           {health &&
             Object.entries(health.services).map(([service, status]) => (
               <div key={service} className="event-line">
@@ -64,17 +66,17 @@ export default function DashboardPage() {
         </div>
 
         <div className="panel">
-          <h3>Останні сканування</h3>
+          <h3>{t("dashboard.recentScans")}</h3>
           {(!stats || stats.recent_scans.length === 0) && (
-            <div className="empty">Поки немає сканувань</div>
+            <div className="empty">{t("dashboard.noScans")}</div>
           )}
           <table>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Тип</th>
-                <th>Статус</th>
-                <th>Ризик</th>
+                <th>{t("common.id")}</th>
+                <th>{t("common.type")}</th>
+                <th>{t("common.status")}</th>
+                <th>{t("common.risk")}</th>
               </tr>
             </thead>
             <tbody>
@@ -99,8 +101,8 @@ export default function DashboardPage() {
 
       <div className="grid cols-2">
         <div className="panel">
-          <h3>Активність у реальному часі</h3>
-          {events.length === 0 && <div className="muted">Підключіться до WS — події зʼявляться тут</div>}
+          <h3>{t("dashboard.realtime")}</h3>
+          {events.length === 0 && <div className="muted">{t("dashboard.wsHint")}</div>}
           {events.slice(0, 20).map((ev, i) => (
             <div key={ev.at + "-" + i} className="event-line">
               <time>{new Date(ev.at).toLocaleTimeString()}</time>
@@ -111,26 +113,26 @@ export default function DashboardPage() {
         </div>
 
         <div className="panel">
-          <h3>Швидкі дії</h3>
+          <h3>{t("dashboard.quickActions")}</h3>
           <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <Link href="/assets">
               <button className="ghost" style={{ width: "100%" }}>
-                Керувати assets
+                {t("dashboard.manageAssets")}
               </button>
             </Link>
             <Link href="/scans">
               <button className="ghost" style={{ width: "100%" }}>
-                Створити сканування
+                {t("dashboard.createScan")}
               </button>
             </Link>
             <Link href="/findings">
               <button className="ghost" style={{ width: "100%" }}>
-                Переглянути findings
+                {t("dashboard.viewFindings")}
               </button>
             </Link>
             <Link href="/reports">
               <button className="ghost" style={{ width: "100%" }}>
-                Звіти
+                {t("dashboard.reports")}
               </button>
             </Link>
           </div>

@@ -6,11 +6,13 @@ import { AIExplain } from "@/components/AIExplain";
 import { RequireAuth } from "@/components/RequireAuth";
 import { SeverityPill } from "@/components/Pills";
 import { get } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Finding } from "@/lib/types";
 
 const SEVERITIES = ["info", "low", "medium", "high", "critical"];
 
 export default function FindingsPage() {
+  const { t } = useI18n();
   const [findings, setFindings] = useState<Finding[]>([]);
   const [severity, setSeverity] = useState("");
   const [scanId, setScanId] = useState("");
@@ -24,9 +26,9 @@ export default function FindingsPage() {
       const qs = params.toString();
       setFindings(await get<Finding[]>(`/api/v1/findings${qs ? `?${qs}` : ""}`));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, [severity, scanId]);
+  }, [severity, scanId, t]);
 
   useEffect(() => {
     load();
@@ -34,14 +36,14 @@ export default function FindingsPage() {
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Findings</h2>
+      <h2 className="page-title">{t("findings.title")}</h2>
 
       <div className="panel">
         <div className="form-row" style={{ marginBottom: 0 }}>
           <div>
-            <label>Серйозність</label>
+            <label>{t("findings.severity")}</label>
             <select value={severity} onChange={(e) => setSeverity(e.target.value)}>
-              <option value="">всі</option>
+              <option value="">{t("common.all")}</option>
               {SEVERITIES.map((s) => (
                 <option key={s} value={s}>
                   {s}
@@ -50,11 +52,11 @@ export default function FindingsPage() {
             </select>
           </div>
           <div>
-            <label>Scan ID</label>
+            <label>{t("findings.scanId")}</label>
             <input
               value={scanId}
               onChange={(e) => setScanId(e.target.value)}
-              placeholder="filter by scan"
+              placeholder={t("findings.scanPlaceholder")}
             />
           </div>
         </div>
@@ -63,15 +65,15 @@ export default function FindingsPage() {
       {error && <div className="error">{error}</div>}
 
       <div className="panel">
-        <h3>Знахідки ({findings.length})</h3>
-        {findings.length === 0 && <div className="empty">Немає знахідок</div>}
+        <h3>{t("findings.list", { count: findings.length })}</h3>
+        {findings.length === 0 && <div className="empty">{t("findings.none")}</div>}
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Scan</th>
-              <th>Серйозність</th>
-              <th>Назва</th>
+              <th>{t("common.id")}</th>
+              <th>{t("findings.colScan")}</th>
+              <th>{t("findings.severity")}</th>
+              <th>{t("findings.colTitle")}</th>
               <th>CVE</th>
               <th>AI</th>
             </tr>

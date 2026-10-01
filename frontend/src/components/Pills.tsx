@@ -1,3 +1,7 @@
+"use client";
+
+import { useI18n } from "@/lib/i18n";
+
 export function RiskPill({ risk }: { risk?: string | null }) {
   const level = (risk ?? "LOW").toLowerCase();
   return <span className={`pill ${level}`}>{(risk ?? "LOW").toUpperCase()}</span>;
@@ -37,7 +41,8 @@ export function ChannelPill({ channel }: { channel: string }) {
 }
 
 export function DeliveryPill({ status }: { status: string }) {
+  const { t } = useI18n();
   const tone = DELIVERY_TONE[status] ?? "neutral";
-  const label = status === "skipped" ? "пропущено" : status;
+  const label = status === "skipped" ? t("pill.skipped") : status;
   return <span className={`pill ${tone}`}>{label}</span>;
 }

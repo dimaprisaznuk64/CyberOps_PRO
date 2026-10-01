@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from "react";
 
 import { RequireAuth } from "@/components/RequireAuth";
 import { apiUrl, get, getToken, post } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Asset, Report, ReportDetail, Scan } from "@/lib/types";
 
 const FORMATS = ["csv", "html", "pdf"];
 
 export default function ReportsPage() {
+  const { t } = useI18n();
   const [reports, setReports] = useState<Report[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [scans, setScans] = useState<Scan[]>([]);
@@ -23,9 +25,9 @@ export default function ReportsPage() {
     try {
       setReports(await get<Report[]>("/api/v1/reports"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
@@ -50,7 +52,7 @@ export default function ReportsPage() {
       setTitle("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     }
   };
 
@@ -60,7 +62,7 @@ export default function ReportsPage() {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!resp.ok) {
-      setError(`Export failed: HTTP ${resp.status}`);
+      setError(t("reports.exportFailed", { status: resp.status }));
       return;
     }
     const blob = await resp.blob();
@@ -76,21 +78,21 @@ export default function ReportsPage() {
     try {
       setDetail(await get<ReportDetail>(`/api/v1/reports/${id}`));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     }
   };
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Reports</h2>
+      <h2 className="page-title">{t("reports.title")}</h2>
 
       <div className="panel">
-        <h3>Новий звіт</h3>
+        <h3>{t("reports.new")}</h3>
         {error && <div className="error">{error}</div>}
         <form onSubmit={submit}>
           <div className="form-row">
             <div>
-              <label>Назва</label>
+              <label>{t("reports.name")}</label>
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -98,7 +100,7 @@ export default function ReportsPage() {
               />
             </div>
             <div>
-              <label>Тип</label>
+              <label>{t("reports.type")}</label>
               <select
                 value={reportType}
                 onChange={(e) => setReportType(e.target.value)}
@@ -109,9 +111,9 @@ export default function ReportsPage() {
             </div>
             {reportType === "scan" && (
               <div>
-                <label>Scan</label>
+                <label>{t("reports.scan")}</label>
                 <select value={scanId} onChange={(e) => setScanId(e.target.value)}>
-                  <option value="">— виберіть —</option>
+                  <option value="">{t("common.select")}</option>
                   {scans.map((s) => (
                     <option key={s.id} value={s.id}>
                       #{s.id} ({s.scan_type}, {s.status})
@@ -122,9 +124,9 @@ export default function ReportsPage() {
             )}
             {reportType === "asset" && (
               <div>
-                <label>Asset</label>
+                <label>{t("reports.asset")}</label>
                 <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-                  <option value="">— виберіть —</option>
+                  <option value="">{t("common.select")}</option>
                   {assets.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.host})
@@ -135,23 +137,23 @@ export default function ReportsPage() {
             )}
           </div>
           <button type="submit" disabled={!title}>
-            Згенерувати
+            {t("reports.generate")}
           </button>
         </form>
       </div>
 
       <div className="panel">
-        <h3>Звіти ({reports.length})</h3>
-        {reports.length === 0 && <div className="empty">Немає звітів</div>}
+        <h3>{t("reports.list", { count: reports.length })}</h3>
+        {reports.length === 0 && <div className="empty">{t("reports.none")}</div>}
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Назва</th>
-              <th>Тип</th>
-              <th>Створено</th>
-              <th>Експорт</th>
-              <th>Деталі</th>
+              <th>{t("common.id")}</th>
+              <th>{t("reports.colName")}</th>
+              <th>{t("reports.type")}</th>
+              <th>{t("reports.colCreated")}</th>
+              <th>{t("reports.colExport")}</th>
+              <th>{t("reports.colDetails")}</th>
             </tr>
           </thead>
           <tbody>
@@ -174,7 +176,7 @@ export default function ReportsPage() {
                 </td>
                 <td>
                   <button className="sm ghost" onClick={() => openDetail(r.id)}>
-                    View
+                    {t("common.view")}
                   </button>
                 </td>
               </tr>
@@ -185,12 +187,10 @@ export default function ReportsPage() {
 
       {detail && (
         <div className="panel">
-          <h3>
-            Деталі #{detail.id}: {detail.title}
-          </h3>
+          <h3>{t("reports.details", { id: detail.id, title: detail.title })}</h3>
           <pre className="small">{JSON.stringify(detail.content, null, 2)}</pre>
           <button className="sm ghost" onClick={() => setDetail(null)}>
-            Закрити
+            {t("common.close")}
           </button>
         </div>
       )}

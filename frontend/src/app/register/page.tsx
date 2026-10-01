@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useAuth } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 
 export default function RegisterPage() {
   const { register, session, ready } = useAuth();
+  const { t } = useI18n();
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,7 +28,7 @@ export default function RegisterPage() {
       await register(username, password, email || null);
       router.push("/dashboard");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка реєстрації");
+      setError(err instanceof Error ? err.message : t("register.error"));
     } finally {
       setBusy(false);
     }
@@ -34,34 +36,33 @@ export default function RegisterPage() {
 
   return (
     <div className="panel" style={{ maxWidth: 420, margin: "40px auto" }}>
-      <h3>Реєстрація</h3>
+      <h3>{t("register.title")}</h3>
       {error && <div className="error">{error}</div>}
       <form onSubmit={submit}>
-        <label>Username (мін. 3)</label>
+        <label>{t("register.username")}</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
-        <label>Password (мін. 8)</label>
+        <label>{t("register.password")}</label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
-        <label>Email (необовʼязково)</label>
+        <label>{t("register.email")}</label>
         <input value={email} onChange={(e) => setEmail(e.target.value)} />
         <div style={{ marginTop: 14 }}>
           <button
             type="submit"
             disabled={busy || username.length < 3 || password.length < 8}
           >
-            {busy ? "Реєстрація…" : "Створити акаунт"}
+            {busy ? t("register.busy") : t("register.submit")}
           </button>
         </div>
       </form>
       <p className="small muted" style={{ marginTop: 14 }}>
-        Новий акаунт отримує роль <code>user</code>. Підняття до <code>analyst</code> або{" "}
-        <code>admin</code> робить адміністратор.
+        {t("register.note")}
       </p>
       <p className="small muted" style={{ marginTop: 8 }}>
-        Вже є акаунт? <a href="/login">Увійти</a>
+        {t("register.haveAccount")} <a href="/login">{t("register.loginLink")}</a>
       </p>
     </div>
   );

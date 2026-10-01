@@ -9,9 +9,11 @@ import { RiskPill, SeverityPill, StatusPill } from "@/components/Pills";
 import { ScanRawArchive } from "@/components/ScanRawArchive";
 import { StatCard } from "@/components/StatCard";
 import { get } from "@/lib/api";
+import { useI18n } from "@/lib/i18n";
 import type { Finding, ScanResult, ScanRisk, Service } from "@/lib/types";
 
 export default function ScanDetailPage() {
+  const { t } = useI18n();
   const params = useParams<{ id: string }>();
   const scanId = Number(params.id);
 
@@ -34,9 +36,9 @@ export default function ScanDetailPage() {
       setRisk(r);
       setFindings(f);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, [scanId]);
+  }, [scanId, t]);
 
   useEffect(() => {
     load();
@@ -45,22 +47,22 @@ export default function ScanDetailPage() {
   return (
     <RequireAuth>
       {error && <div className="error">{error}</div>}
-      <h2 className="page-title">Сканування #{scanId}</h2>
+      <h2 className="page-title">{t("scanDetail.title", { id: scanId })}</h2>
 
       {scan && (
         <div className="grid cols-4">
           <StatCard
-            label="Статус"
+            label={t("scanDetail.status")}
             value={
               <span>
                 <StatusPill status={scan.status} />
               </span>
             }
           />
-          <StatCard label="Сервіси" value={risk?.services_count ?? "—"} />
-          <StatCard label="Risk score" value={risk?.risk_score ?? "—"} />
+          <StatCard label={t("scanDetail.services")} value={risk?.services_count ?? "—"} />
+          <StatCard label={t("scanDetail.riskScore")} value={risk?.risk_score ?? "—"} />
           <StatCard
-            label="Risk level"
+            label={t("scanDetail.riskLevel")}
             value={
               <span>
                 <RiskPill risk={risk?.risk_level} />
@@ -72,23 +74,23 @@ export default function ScanDetailPage() {
 
       {scan?.command && (
         <div className="panel">
-          <h3>Команда</h3>
+          <h3>{t("scanDetail.command")}</h3>
           <code className="small">{scan.command}</code>
         </div>
       )}
 
       <div className="grid cols-2">
         <div className="panel">
-          <h3>Сервіси ({services.length})</h3>
-          {services.length === 0 && <div className="empty">Немає даних</div>}
+          <h3>{t("scanDetail.servicesCount", { count: services.length })}</h3>
+          {services.length === 0 && <div className="empty">{t("common.noData")}</div>}
           <table>
             <thead>
               <tr>
-                <th>Порт</th>
-                <th>Протокол</th>
-                <th>Сервіс</th>
-                <th>Продукт</th>
-                <th>Версія</th>
+                <th>{t("scanDetail.colPort")}</th>
+                <th>{t("scanDetail.colProtocol")}</th>
+                <th>{t("scanDetail.colService")}</th>
+                <th>{t("scanDetail.colProduct")}</th>
+                <th>{t("scanDetail.colVersion")}</th>
               </tr>
             </thead>
             <tbody>
@@ -106,7 +108,7 @@ export default function ScanDetailPage() {
         </div>
 
         <div className="panel">
-          <h3>Findings по серйозності</h3>
+          <h3>{t("scanDetail.findingsBySeverity")}</h3>
           {risk && (
             <table>
               <tbody>
@@ -122,21 +124,21 @@ export default function ScanDetailPage() {
             </table>
           )}
           {risk && Object.keys(risk.findings_by_severity).length === 0 && (
-            <div className="empty">Немає findings</div>
+            <div className="empty">{t("scanDetail.noFindings")}</div>
           )}
         </div>
       </div>
 
       <div className="panel">
-        <h3>Findings ({findings.length})</h3>
-        {findings.length === 0 && <div className="empty">Немає findings</div>}
+        <h3>{t("scanDetail.findings", { count: findings.length })}</h3>
+        {findings.length === 0 && <div className="empty">{t("scanDetail.noFindings")}</div>}
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Серйозність</th>
-              <th>Назва</th>
-              <th>Рекомендація</th>
+              <th>{t("common.id")}</th>
+              <th>{t("scanDetail.colSeverity")}</th>
+              <th>{t("scanDetail.colTitle")}</th>
+              <th>{t("scanDetail.colRecommendation")}</th>
               <th>AI</th>
             </tr>
           </thead>

@@ -7,10 +7,12 @@ import { RequireAuth } from "@/components/RequireAuth";
 import { RiskPill, StatusPill } from "@/components/Pills";
 import { get, post } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n";
 import type { Asset, Scan, ScanType } from "@/lib/types";
 
 export default function ScansPage() {
   const { session } = useAuth();
+  const { t, locale } = useI18n();
   const canCreate = session?.role === "admin" || session?.role === "analyst";
   const [scans, setScans] = useState<Scan[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -24,7 +26,7 @@ export default function ScansPage() {
     try {
       setScans(await get<Scan[]>("/api/v1/scans"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Помилка");
+      setError(e instanceof Error ? e.message : t("common.error"));
     }
   }, []);
 
@@ -53,7 +55,7 @@ export default function ScansPage() {
       setPorts("");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Помилка");
+      setError(err instanceof Error ? err.message : t("common.error"));
     } finally {
       setBusy(false);
     }
@@ -61,22 +63,22 @@ export default function ScansPage() {
 
   return (
     <RequireAuth>
-      <h2 className="page-title">Scans</h2>
+      <h2 className="page-title">{t("scans.title")}</h2>
 
       {canCreate && (
         <div className="panel">
-          <h3>Нове сканування</h3>
+          <h3>{t("scans.new")}</h3>
           {error && <div className="error">{error}</div>}
           <form onSubmit={submit}>
             <div className="form-row">
               <div>
-                <label>Актив (ціль)</label>
+                <label>{t("scans.asset")}</label>
                 <select
                   value={assetId}
                   onChange={(e) => setAssetId(e.target.value)}
                   required
                 >
-                  <option value="">— виберіть —</option>
+                  <option value="">{t("common.select")}</option>
                   {assets.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name} ({a.host})
@@ -85,7 +87,7 @@ export default function ScansPage() {
                 </select>
               </div>
               <div>
-                <label>Тип сканування</label>
+                <label>{t("scans.type")}</label>
                 <select
                   value={scanType}
                   onChange={(e) => setScanType(e.target.value as ScanType)}
@@ -96,33 +98,33 @@ export default function ScansPage() {
                 </select>
               </div>
               <div>
-                <label>Порти (optional)</label>
+                <label>{t("scans.ports")}</label>
                 <input
                   value={ports}
                   onChange={(e) => setPorts(e.target.value)}
-                  placeholder="22,80,443  або 1-1000"
+                  placeholder={t("scans.portsPlaceholder")}
                 />
               </div>
             </div>
             <button type="submit" disabled={busy || !assetId}>
-              {busy ? "Запуск…" : "Запустити сканування"}
+              {busy ? t("scans.submitting") : t("scans.submit")}
             </button>
           </form>
         </div>
       )}
 
       <div className="panel">
-        <h3>Історія ({scans.length})</h3>
-        {scans.length === 0 && <div className="empty">Немає сканувань</div>}
+        <h3>{t("scans.history", { count: scans.length })}</h3>
+        {scans.length === 0 && <div className="empty">{t("scans.none")}</div>}
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Тип</th>
-              <th>Статус</th>
-              <th>Ризик</th>
-              <th>Старт</th>
-              <th>Фініш</th>
+              <th>{t("common.id")}</th>
+              <th>{t("common.type")}</th>
+              <th>{t("common.status")}</th>
+              <th>{t("common.risk")}</th>
+              <th>{t("scans.colStart")}</th>
+              <th>{t("scans.colFinish")}</th>
             </tr>
           </thead>
           <tbody>
@@ -139,10 +141,10 @@ export default function ScansPage() {
                   <RiskPill risk={s.risk_level} />
                 </td>
                 <td className="small muted">
-                  {s.started_at ? new Date(s.started_at).toLocaleString() : "—"}
+                  {s.started_at ? new Date(s.started_at).toLocaleString(locale) : "—"}
                 </td>
                 <td className="small muted">
-                  {s.finished_at ? new Date(s.finished_at).toLocaleString() : "—"}
+                  {s.finished_at ? new Date(s.finished_at).toLocaleString(locale) : "—"}
                 </td>
               </tr>
             ))}

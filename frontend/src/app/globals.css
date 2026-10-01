@@ -83,6 +83,17 @@ header.topbar nav a.active {
   margin-right: 10px;
 }
 
+.lang-switch {
+  display: inline-flex;
+  gap: 2px;
+  margin-right: 10px;
+}
+
+.lang-switch button.current {
+  color: #fff;
+  background: rgba(79, 140, 255, 0.16);
+}
+
 main {
   max-width: 1200px;
   margin: 0 auto;
