@@ -304,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 250 тестів, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 253 тести, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy `--pkg-types library` — усі три блокуючі, без умовних кроків |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -323,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 250 тестів
+python -m pytest tests -q                 # 253 тести
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -377,12 +377,16 @@ kubectl -n cyberops port-forward svc/gateway 8000:8000
    `curl` без `Origin` ніколи не бачив би попереднього багу.
 3. **Вхід адміністратором** (облікові дані зі Secret, обмежена кількість спроб
    через backoff сида) і **створення активу з читанням назад** (201 + readback).
-4. **Усі таргети Prometheus `up`** — список береться з самого Prometheus
+4. **Реальний скан доходить до `done`** — `POST /api/v1/scans`, а далі опитування
+   статусу до `done` (або падіння на `failed`). Це єдина дія, яка пробуджує
+   `worker`: без неї найдовша операція системи (`nmap`) не перевірялася б.
+5. **Усі таргети Prometheus `up`** — список береться з самого Prometheus
    (`/api/v1/targets`), а при падінні в лог іде реальна причина (`lastError`).
-5. **Спани прибули в Jaeger** для сервісів, через які пройшли запити вище
+6. **Спани прибули в Jaeger** для сервісів, через які пройшли запити вище —
+   `gateway`, `core`, `auth` і `worker` (останній — під час скану)
    (`EXPECTED_TRACE_SERVICES`), **і реально читаються** через `/api/traces` —
    сама реєстрація сервісу нічого не доводить, дані могли не дійти.
-6. **Датасорс Grafana provisionований і здоровий** (`/api/datasources` +
+7. **Датасорс Grafana provisionований і здоровий** (`/api/datasources` +
    `/health` датасорса). `/api/health` самої Grafana тут безкоштовний: вона
    радісно віддає `ok`, навіть коли датасорс мертвий.
 
@@ -401,7 +405,7 @@ kubectl -n cyberops port-forward svc/gateway 8000:8000
 
 ```bash
 TRACE_SERVICES=""
-for s in gateway core auth; do
+for s in gateway core auth worker; do
   name=$(docker compose -f docker-compose.yml exec -T "$s" printenv TRACING_SERVICE_NAME)
   [ -n "$name" ] || { echo "$s без TRACING_SERVICE_NAME"; exit 1; }
   TRACE_SERVICES="$TRACE_SERVICES $name"
