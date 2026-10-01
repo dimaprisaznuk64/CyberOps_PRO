@@ -40,7 +40,7 @@ from app.services.realtime import (
     publish_event as publish_realtime_event,
 )
 from app.services.scans import fail_stale_scans
-from app.services.tracing import get_tracer
+from app.services.tracing import extract_celery_context, get_tracer
 from app.tasks import enqueue_notification_delivery
 from celery import signals
 from sqlalchemy import delete, update
@@ -68,9 +68,19 @@ def _start_metrics_server(*_args, **_kwargs) -> None:
     serve_metrics()
 
 
-@celery_app.task(name="workers.tasks.run_scan")
-def run_scan(scan_id: int, host: str, scan_type: str, ports: str | None) -> dict:
-    return asyncio.run(_run_scan(scan_id, host, scan_type, ports))
+@celery_app.task(name="workers.tasks.run_scan", bind=True)
+def run_scan(
+    self, scan_id: int, host: str, scan_type: str, ports: str | None
+) -> dict:
+    # bind=True заради self.request: без нього Celery робить з функції
+    # staticmethod, і до повідомлення не дістатися — треба ж знати, який саме
+    # traceparent прийшов.
+    #
+    # Батьківський context із повідомлення, щоб `scan.run` продовжив слід
+    # запиту, що поставив скан у чергу, а не почав новий. Відсутність
+    # контексту не є помилкою: тоді спан просто стане коренем.
+    parent = extract_celery_context(self.request.headers)
+    return asyncio.run(_run_scan(scan_id, host, scan_type, ports, parent=parent))
 
 
 @celery_app.task(name="workers.tasks.reap_stale_scans")
@@ -94,12 +104,17 @@ def reap_stale_scans() -> dict:
 
 
 async def _run_scan(
-    scan_id: int, host: str, scan_type: str, ports: str | None
+    scan_id: int,
+    host: str,
+    scan_type: str,
+    ports: str | None,
+    parent: object | None = None,
 ) -> dict:
     tracer = get_tracer("workers.tasks")
     span = tracer.start_span(
         "scan.run",
         attributes={"scan.id": scan_id, "scan.host": host, "scan.type": scan_type},
+        context=parent,
     )
     command = build_command(host, scan_type, ports)
     started_at = datetime.now(UTC)

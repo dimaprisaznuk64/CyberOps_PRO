@@ -3,6 +3,7 @@ from __future__ import annotations
 from celery import Celery
 
 from app.config import settings
+from app.services.tracing import inject_celery_headers
 
 celery_client = Celery("cyberops", broker=settings.celery_broker_url)
 celery_client.conf.broker_connection_retry_on_startup = True
@@ -17,7 +18,13 @@ def enqueue_scan(
     scan_type: str,
     ports: str | None,
 ) -> None:
-    celery_client.send_task(SCAN_TASK_NAME, args=[scan_id, host, scan_type, ports])
+    # headers з trace context: без них `scan.run` у воркері відкриє власний
+    # трейс, і слід розірветься на два — див. inject_celery_headers().
+    celery_client.send_task(
+        SCAN_TASK_NAME,
+        args=[scan_id, host, scan_type, ports],
+        headers=inject_celery_headers(),
+    )
 
 
 def enqueue_notification_delivery(notification_id: int) -> None:

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import gzip
 
-import pytest
 from app.main import app as core_app
 from app.models.scan import SCAN_DONE, Scan
 from sqlalchemy import select
@@ -21,20 +20,6 @@ from sqlalchemy import select
 from tests.conftest import login
 from tests.test_nmap_runner import DEEP_XML
 from workers import tasks as worker_tasks
-
-
-@pytest.fixture
-def worker_env(monkeypatch, session_factory):
-    """Воркер у тестах крутиться на тій самій in-memory БД, що й API."""
-    monkeypatch.setattr(worker_tasks, "SessionLocal", session_factory)
-    monkeypatch.setattr(worker_tasks, "enqueue_notification_delivery", lambda _id: None)
-    monkeypatch.setattr(worker_tasks, "publish_event", lambda *a, **k: None)
-
-    async def _no_realtime(*_args, **_kwargs):
-        return None
-
-    monkeypatch.setattr(worker_tasks, "publish_realtime_event", _no_realtime)
-    monkeypatch.setattr(worker_tasks, "run_nmap", lambda *_a, **_k: DEEP_XML)
 
 
 async def _new_scan(client, token: str) -> int:

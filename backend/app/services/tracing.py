@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from opentelemetry import trace
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 # OTel дозволяє зареєструвати провайдера глобально лише один раз, тому
 # ініціалізація має бути ідемпотентною: інакше повторний виклик (Celery
@@ -94,3 +95,39 @@ def reset_tracing() -> None:
     global _PROVIDER
 
     _PROVIDER = None
+
+
+# --- Перенесення контексту в чергу Celery -------------------------------------
+#
+# Celery не переносить trace context сам: повідомлення їде в Redis як JSON, а
+# не як HTTP-заголовки, тож стандартні HTTP-інструментації тут не працюють.
+# Контекст доводиться класти в headers повідомлення вручну на стороні
+# відправника і виймати на стороні виконавця.
+#
+# Без цього `scan.run` починає власний трейс: у Jaeger це два розірвані
+# сліди замість одного, і перейти від «користувач запустив скан» до «що
+# зробив nmap» неможливо. Пропагатор беремо явним екземпляром, а не
+# глобальним, — ті самі причини, що й вище: глобальний стан тут не наш.
+_PROPAGATOR = TraceContextTextMapPropagator()
+
+
+def inject_celery_headers() -> dict[str, str]:
+    """Кладе поточний W3C trace context у headers повідомлення Celery."""
+    carrier: dict[str, str] = {}
+    _PROPAGATOR.inject(carrier)
+    return carrier
+
+
+def extract_celery_context(headers: Any) -> Any:
+    """Відновлює батьківський context з headers повідомлення.
+
+    Повертає None, якщо контексту в повідомленні немає (старе повідомлення в
+    черзі, або таск викликали напряму) — тож спан просто стане коренем, як і
+    раніше, замість падіння.
+    """
+    if not headers:
+        return None
+    carrier = {str(k): v for k, v in dict(headers).items() if isinstance(v, str)}
+    if not carrier:
+        return None
+    return _PROPAGATOR.extract(carrier)
