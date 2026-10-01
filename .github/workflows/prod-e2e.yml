@@ -69,7 +69,7 @@ jobs:
           # Немає змінної — падаємо: дефолт "core" з config.py злив би цей
           # сервіс із реальним core у Jaeger.
           TRACE_SERVICES=""
-          for s in gateway core auth; do
+          for s in gateway core auth worker; do
             name=$(docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               exec -T "$s" printenv TRACING_SERVICE_NAME 2>/dev/null || true)
             if [ -z "$name" ]; then

@@ -907,3 +907,45 @@ def test_both_stands_point_the_smoke_test_at_their_observability_stack(
         for service in ("prometheus", "jaeger", "grafana"):
             assert f"svc/{service}" in text, f"deploy.yml не робить port-forward для {service}"
 
+
+def test_smoke_script_runs_a_scan_and_waits_for_it_to_finish() -> None:
+    """Скан мусить не лише ставитися в чергу, а й доходити до `done`.
+
+    Це єдина дія smoke, яка пробуджує `worker`: без скану воркер не отримує
+    завдання, спан `scan.run` не створюється, і сервісу `worker` у Jaeger
+    немає. Саме тому до v1.22 жоден стенд не бачив найдовшої операції системи
+    (`nmap` до 300 с). Одного `202` на створенні замало: воно означає лише
+    «взяли в чергу», і на завислому nmap перевірка зеленіла б, хоч скан ніколи
+    не завершується.
+    """
+    text = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    for needle in (
+        '-X POST "$GATEWAY_URL/api/v1/scans"',
+        "SCAN_ID=$(head -n -1",
+        "/api/v1/scans/$SCAN_ID",
+        "SCAN_ATTEMPTS",
+        "failed)",
+        '[ "$STATUS" = done ]',
+    ):
+        assert needle in text, f"у smoke.sh немає перевірки {needle}"
+
+
+@pytest.mark.parametrize("workflow", ["deploy.yml", "prod-e2e.yml"])
+def test_every_stand_expects_the_worker_that_the_scan_wakes(workflow: str) -> None:
+    """Очікувати `worker` у Jaeger можна лише тоді, коли smoke запускає скан.
+
+    Ці дві правки нерозривні: `worker` не робить нічого, поки немає завдання в
+    черзі. Додати його в `EXPECTED_TRACE_SERVICES` без скану в smoke означало б
+    стенд, який вічно чекає на сервіс, що ніколи не прокинеться. Тест тримає
+    «додати worker» і «запускати скан» разом, щоб перше не пережило друге.
+    """
+    smoke = SMOKE_SCRIPT.read_text(encoding="utf-8")
+    assert '-X POST "$GATEWAY_URL/api/v1/scans"' in smoke, (
+        "smoke.sh не запускає скан — тоді worker не прокинеться і його не можна очікувати"
+    )
+    text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+    match = re.search(r"for (?:svc|s) in ([^;]*);", text)
+    assert match, f"{workflow}: не знайдено перелік сервісів для EXPECTED_TRACE_SERVICES"
+    services = match.group(1).split()
+    assert "worker" in services, f"{workflow} не очікує worker у Jaeger: {services}"
+

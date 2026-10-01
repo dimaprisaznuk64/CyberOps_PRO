@@ -31,7 +31,7 @@
 # і жив баг з недоступним jaeger:14269 у k8s — конфіг виглядав правильним.
 #
 # Опційно: SMOKE_ASSET_NAME (типово kind-e2e), ADMIN_LOGIN_ATTEMPTS (12),
-# OBS_ATTEMPTS (30).
+# OBS_ATTEMPTS (30), SMOKE_SCAN_TYPE (quick), SCAN_ATTEMPTS (60).
 
 set -euo pipefail
 
@@ -51,6 +51,8 @@ set -euo pipefail
 ASSET_NAME="${SMOKE_ASSET_NAME:-kind-e2e}"
 LOGIN_ATTEMPTS="${ADMIN_LOGIN_ATTEMPTS:-12}"
 OBS_ATTEMPTS="${OBS_ATTEMPTS:-30}"
+SCAN_TYPE="${SMOKE_SCAN_TYPE:-quick}"
+SCAN_ATTEMPTS="${SCAN_ATTEMPTS:-60}"
 
 # Очікування готовності. Один запит на старті — лотерея: контейнер може ще
 # слухати, а може вже впасти. Тому спершу діждемося відповіді, і лише потім
@@ -122,16 +124,52 @@ echo "увійшли з спробою $attempt"
 LOGIN_ATTEMPT_USED=$attempt
 
 echo "--- створення активу і читання назад"
-CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$GATEWAY_URL/api/v1/assets" \
+ASSET=$(curl -sS -w '\n%{http_code}' -X POST "$GATEWAY_URL/api/v1/assets" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"name\":\"$ASSET_NAME\",\"host\":\"127.0.0.1\"}")
+CODE=$(tail -n1 <<<"$ASSET")
 echo "create asset: HTTP $CODE"
 [ "$CODE" = 201 ] || { echo "::error::актив не створився (HTTP $CODE)"; exit 1; }
+ASSET_ID=$(head -n -1 <<<"$ASSET" | jq -r '.id')
 
 FOUND=$(curl -fsS "$GATEWAY_URL/api/v1/assets" -H "Authorization: Bearer $TOKEN" \
   | jq -r --arg n "$ASSET_NAME" '[.[] | select(.name==$n)] | length')
 echo "знайдено активів $ASSET_NAME: $FOUND"
 [ "$FOUND" -ge 1 ] || { echo "::error::створений актив не читається назад"; exit 1; }
+
+echo "--- скан: реальний прогін nmap у воркері"
+# Без цього кроку воркер не отримує жодного завдання, спан `scan.run` не
+# створюється, і сервіс `worker` ніколи не з'являється в Jaeger. Саме тому до
+# v1.22 EXPECTED_TRACE_SERVICES міг містити лише gateway/core/auth: найцінніша
+# ділянка — «користувач натиснув скан → nmap відпрацював» — не перевірялася
+# ніде. І саме тут жив розірваний трейс, який лікував v1.21.
+SCAN=$(curl -sS -w '\n%{http_code}' -X POST "$GATEWAY_URL/api/v1/scans" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"asset_id\":$ASSET_ID,\"scan_type\":\"$SCAN_TYPE\"}")
+CODE=$(tail -n1 <<<"$SCAN")
+echo "create scan: HTTP $CODE"
+[ "$CODE" = 202 ] || { echo "::error::скан не поставлено в чергу (HTTP $CODE)"; exit 1; }
+SCAN_ID=$(head -n -1 <<<"$SCAN" | jq -r '.id')
+
+# Скан асинхронний: 202 лише означає «взяли в чергу». Мусить завершитися
+# `done`, а не лише прийнятися — інакше `worker` у Jaeger міг би з'явитися
+# (спан створюється на старті задачі) при назавжди завислому nmap, і перевірка
+# зеленіла б на системі, де скан ніколи не закінчується.
+STATUS=""
+for attempt in $(seq 1 "$SCAN_ATTEMPTS"); do
+  STATUS=$(curl -fsS "$GATEWAY_URL/api/v1/scans/$SCAN_ID" \
+    -H "Authorization: Bearer $TOKEN" | jq -r '.status')
+  case "$STATUS" in
+    done) break ;;
+    failed) echo "::error::скан $SCAN_ID завершився зі статусом failed"; exit 1 ;;
+  esac
+  echo "  спроба $attempt: статус $STATUS"
+  sleep 3
+done
+echo "скан $SCAN_ID: $STATUS"
+[ "$STATUS" = done ] || {
+  echo "::error::скан $SCAN_ID не завершився за відведений час (статус $STATUS)"; exit 1;
+}
 
 echo "--- Prometheus: усі таргети скрейпу мають бути up"
 # Стейл піднімається, а Prometheus потім може роками смикати неіснуючий порт
@@ -154,10 +192,12 @@ curl -fsS "$PROMETHEUS_URL/api/v1/targets" \
 [ -z "$DOWN" ] || { echo "::error::не всі таргети Prometheus up:"; echo "$DOWN"; exit 1; }
 
 echo "--- Jaeger: очікуємо спани від $EXPECTED_TRACE_SERVICES"
-# Запити вище вже пройшли через gateway, core і auth, тож їхні спани мали
-# дійти через OTLP. Якщо їх немає — або немає колектора, або OTLP_ENDPOINT
-# веде не туди. До v1.16 це ніхто не перевіряв: трасування з v1.3 було
-# увімкнено скрізь, але "увімкнено" і "працює" — різні речі.
+# Запити вище вже пройшли через gateway, core, auth і worker (останній — під
+# час сканування), тож їхні спани мали дійти через OTLP. Якщо їх немає — або немає
+# колектора, або OTLP_ENDPOINT веде не туди. До v1.16 це ніхто не перевіряв:
+# трасування з v1.3 було увімкнено скрізь, але "увімкнено" і "працює" — різні
+# речі. `worker` тут саме тому, що до v1.22 скан у smoke не запускався і цей
+# сервіс не перевірявся жодним стендом.
 MISSING=""
 for attempt in $(seq 1 "$OBS_ATTEMPTS"); do
   SERVICES=$(curl -fsS "$JAEGER_URL/api/services" 2>/dev/null \

@@ -100,8 +100,11 @@ jobs:
             echo "::error::TRACING_ENABLED=$TRACING_ON, а перевірка спанів обов'язкова"
             exit 1
           fi
-          # Ці три сервіси справді проходять запитами вище (через gateway ->
-          # core/auth), тож їхні спани мають дійти до Jaeger.
+          # Усі чотири сервіси справді проходять запитами вище: gateway -> core
+          # і auth — на HTTP-запитах, а worker — коли smoke ставить скан і
+          # чекає на його завершення. Саме тому worker тут: без скану в smoke
+          # його спан не створюється, і найдовша операція системи (nmap до
+          # 300 с) не перевірялася б жодним стендом.
           #
           # Імена НЕ хардкодимо: Jaeger групує спани за Resource.service.name,
           # тобто за TRACING_SERVICE_NAME. Хардкод був би тим самим класом,
@@ -113,7 +116,7 @@ jobs:
           # під дефолтом "core" з config.py, і Jaeger зливає його з реальним
           # core — дві різні послуги виглядають як одна, а перевірка мовчить.
           TRACE_SERVICES=""
-          for svc in gateway core auth; do
+          for svc in gateway core auth worker; do
             name=$(kubectl -n cyberops get "deploy/$svc" \
               -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="TRACING_SERVICE_NAME")].value}')
             if [ -z "$name" ]; then
