@@ -304,7 +304,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 | Воркфлоу | Коли | Що робить |
 |---|---|---|
-| `ci.yml` | push + PR | ruff, 253 тести, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
+| `ci.yml` | push + PR | ruff, 254 тести, `docker compose config -q` (база і prod-override), `kubectl kustomize`, frontend (`npm ci`, typecheck, build) |
 | `ci.yml` → `security` | push + PR | Bandit (`-ll`), `pip-audit` (жорсткий gate), Trivy `--pkg-types library` — усі три блокуючі, без умовних кроків |
 | `docker.yml` | push + tag | збірка й push 4 образів у `ghcr.io/<owner>/<repo>`: на `master` — тег `dev`, на tag `v*` — тег версії без `v` |
 | `deploy.yml` | push + ручний запуск | **kind E2E**: збірка, кластер, `apply`, очікування міграцій і rollout, `scripts/smoke.sh` |
@@ -323,7 +323,7 @@ docker compose build          # збирає cyberops/cyberops-{backend,worker,g
 
 ```bash
 cd backend
-python -m pytest tests -q                 # 253 тести
+python -m pytest tests -q                 # 254 тести
 python -m ruff check app tests ../workers ../services ../gateway
 python -m bandit -r app ../gateway ../workers ../services -ll   # SAST, medium+
 python -m pip_audit -r requirements.txt                        # відомі CVE
@@ -650,6 +650,23 @@ frontend/
 - `API_PUBLIC_URL` обов'язковий у prod-оверлеї; build-arg прибрано з compose,
   Dockerfile і `docker.yml`, тож опублікований образ не прив'язаний до адреси,
   під якою його зібрали.
+
+### Мови інтерфейсу: укр та англ (v1.23)
+
+Перемикач **УКР/ENG** у шапці; вибір зберігається в `localStorage`
+(`cyberops.lang`), типово — українська.
+
+- Власний контекст у `src/lib/i18n.tsx`, **без `next-intl`**: він тягне
+  сегмент `[locale]` у маршрутах і `middleware`, тобто перемикач мови
+  переробив би URL-структуру застосунку. Для двох словників це зайва
+  операційна складність.
+- `en` типізовано як `Record<keyof typeof uk, string>` — пропущений ключ
+  падає на `tsc`, а не на екрані користувача.
+- Початковий стан однаковий на сервері й клієнті (`uk`), а збережений вибір
+  підхоплюється в ефекті: інакше SSR і гідратація розійшлися б у розмітці.
+- Дати й одиниці розміру беруть `locale`/`t()` з контексту, а не зашитий
+  `uk-UA`, тож в англійському UI вони не лишаються українськими.
+- Коментарі в коді лишаються українською — їх не бачить користувач.
 
 ## API (v0.7, через Gateway)
 
