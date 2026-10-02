@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 
 from app.main import app as core_app
 from app.models.scan import Scan
-
 from tests.conftest import login
 
 

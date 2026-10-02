@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from services.scanner.nmap_runner import (
     MAX_SCRIPT_OUTPUT_CHARS,
     NmapError,

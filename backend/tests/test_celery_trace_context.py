@@ -15,6 +15,10 @@
 from __future__ import annotations
 
 import pytest
+from opentelemetry import trace as otel_trace
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from workers import tasks as worker_tasks
+
 from app import tasks as app_tasks
 from app.config import settings
 from app.services.tracing import (
@@ -24,10 +28,6 @@ from app.services.tracing import (
     inject_celery_headers,
     reset_tracing,
 )
-from opentelemetry import trace as otel_trace
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-
-from workers import tasks as worker_tasks
 
 
 @pytest.fixture

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from app.config import settings
-from app.services.tracing import init_tracing
 from celery import Celery
 from prometheus_client import start_http_server
+
+from app.config import settings
+from app.services.tracing import init_tracing
 
 # Celery не має FastAPI-додатка, але спани у tasks.py створюються вручну —
 # без ініціалізації провайдера вони пішли б у no-op tracer і зникли.

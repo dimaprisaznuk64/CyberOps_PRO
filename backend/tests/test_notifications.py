@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from app.models.notification import Notification
-
 from tests.conftest import login
 
 
@@ -16,8 +15,9 @@ async def _seed_notification(session_factory, user_id: int) -> int:
 
 
 async def _analyst_id(session_factory) -> int:
-    from app.models.user import User
     from sqlalchemy import select
+
+    from app.models.user import User
 
     async with session_factory() as session:
         user = await session.scalar(select(User).where(User.username == "analyst"))

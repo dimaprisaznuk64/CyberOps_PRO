@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import pytest
 import pytest_asyncio
+from gateway.main import app as gateway_app
+from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, TokenBucketLimiter
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
+
 from app.auth_app import app as auth_app
 from app.database import Base, get_session
 from app.main import app as core_app
@@ -9,12 +15,6 @@ from app.models.user import User
 from app.services.auth import hash_password
 from app.services.events import CollectingPublisher, get_publisher
 from app.tasks import get_notification_enqueuer, get_task_enqueuer
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
-
-from gateway.main import app as gateway_app
-from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, TokenBucketLimiter
 
 # Тести роблять сотні запитів з однієї адреси через ASGI-транспорт, тому
 # справжні лімії перевіряються окремо в test_ratelimit.py, а тут — практично
@@ -82,8 +82,9 @@ def worker_env(monkeypatch, session_factory):
     перевірка архіву Nmap, і перевірка того, що `scan.run` успадковує
     trace context із черги.
     """
-    from tests.test_nmap_runner import DEEP_XML
     from workers import tasks as worker_tasks
+
+    from tests.test_nmap_runner import DEEP_XML
 
     monkeypatch.setattr(worker_tasks, "SessionLocal", session_factory)
     monkeypatch.setattr(worker_tasks, "enqueue_notification_delivery", lambda _id: None)

@@ -12,12 +12,13 @@ register залишалася єдиним способом отримати а�
 
 from __future__ import annotations
 
+from sqlalchemy import func, select
+
 from app.auth_app import seed_admin_with_retry
 from app.config import settings
 from app.models.user import ROLE_ADMIN, ROLE_USER, User
 from app.services.auth import authenticate, hash_password
 from app.services.seed import ensure_admin_user
-from sqlalchemy import func, select
 
 
 async def test_seed_creates_admin(session_factory):

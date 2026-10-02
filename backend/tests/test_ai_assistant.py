@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from app.models.finding import Finding
 from sqlalchemy import select
 
+from app.models.finding import Finding
 from tests.conftest import login
 from tests.test_findings import _create_asset, _seed_completed_scan, _user_id
 

@@ -7,15 +7,16 @@ Create Date: 2026-09-23
 """
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "0002_targets_scans"
-down_revision: Union[str, None] = "0001_users"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "0001_users"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -52,7 +53,13 @@ def upgrade() -> None:
             nullable=False,
             index=True,
         ),
-        sa.Column("status", sa.String(length=20), nullable=False, server_default="pending", index=True),
+        sa.Column(
+            "status",
+            sa.String(length=20),
+            nullable=False,
+            server_default="pending",
+            index=True,
+        ),
         sa.Column("scan_type", sa.String(length=20), nullable=False, server_default="tcp"),
         sa.Column("ports", sa.String(length=255), nullable=True),
         sa.Column("command", sa.Text(), nullable=True),

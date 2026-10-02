@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import gzip
 
+from services.scanner.nmap_runner import parse_nmap_xml
+from sqlalchemy import update
+
 from app.main import app as core_app
 from app.models.scan import Scan
 from app.services.raw_nmap import pack_raw_xml
-from sqlalchemy import update
-
-from services.scanner.nmap_runner import parse_nmap_xml
 from tests.conftest import login
 from tests.test_nmap_runner import DEEP_XML
 

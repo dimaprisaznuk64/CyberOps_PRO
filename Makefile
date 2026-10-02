@@ -43,8 +43,11 @@ logs-worker:
 test:
 	cd backend && python -m pytest tests -q
 
+# З корня, щоб перевірка збігалася з gate у ci.yml: один конфіг (ruff.toml),
+# один набір шляхів. Раніше тут був інший виклик, ніж у CI, — обидва були зелені
+# на різних наборах файлів (v1.25).
 lint:
-	cd backend && python -m ruff check app tests ../workers ../services ../gateway
+	python -m ruff check backend gateway workers services scripts --exclude .kilo
 
 build:
 	docker compose build

@@ -307,9 +307,9 @@ def _settings_fields() -> set[str]:
     """
     fields: set[str] = set()
     try:
-        from app.config import Settings
-
         from gateway.config import GatewaySettings
+
+        from app.config import Settings
     except Exception:  # pragma: no cover - импорти недоступні поза тестовим оточенням
         return fields
     fields |= set(Settings.model_fields) | set(GatewaySettings.model_fields)

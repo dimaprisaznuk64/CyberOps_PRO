@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from alembic import context
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from sqlalchemy import pool
+from sqlalchemy.ext.asyncio import async_engine_from_config
 
+import app.models  # noqa: F401  (реєстрація всіх моделей)
+from alembic import context
 from app.config import settings
 from app.database import Base
-import app.models  # noqa: F401  (реєстрація всіх моделей)
 from app.models.scan import Scan  # noqa: F401
 
 config = context.config

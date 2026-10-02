@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
+
 from app.main import app
 from app.services.auth import create_token
 from app.services.realtime import publish_event
-from fastapi.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
 
 def test_ws_rejects_invalid_token():

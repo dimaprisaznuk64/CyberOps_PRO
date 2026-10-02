@@ -13,13 +13,13 @@ from __future__ import annotations
 
 import gzip
 
+from sqlalchemy import select
+from workers import tasks as worker_tasks
+
 from app.main import app as core_app
 from app.models.scan import SCAN_DONE, Scan
-from sqlalchemy import select
-
 from tests.conftest import login
 from tests.test_nmap_runner import DEEP_XML
-from workers import tasks as worker_tasks
 
 
 async def _new_scan(client, token: str) -> int:

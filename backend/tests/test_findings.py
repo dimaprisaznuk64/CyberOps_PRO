@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy import select
+
 from app.models.finding import Finding
 from app.models.scan import SCAN_DONE, Scan
 from app.models.service import Service
 from app.models.user import User
-from sqlalchemy import select
-
 from tests.conftest import login
 
 

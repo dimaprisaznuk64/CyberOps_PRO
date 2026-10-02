@@ -4,6 +4,12 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
+from celery import signals
+from services.scanner.nmap_runner import NmapError, build_command, parse_nmap_xml, run_nmap
+from sqlalchemy import delete, update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
+
 import app.models  # noqa: F401  (реєстрація всіх моделей для SQLAlchemy mapper)
 from app.config import settings
 from app.models.finding import Finding
@@ -42,12 +48,6 @@ from app.services.realtime import (
 from app.services.scans import fail_stale_scans
 from app.services.tracing import extract_celery_context, get_tracer
 from app.tasks import enqueue_notification_delivery
-from celery import signals
-from sqlalchemy import delete, update
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-
-from services.scanner.nmap_runner import NmapError, build_command, parse_nmap_xml, run_nmap
 from workers.celery_app import celery_app, serve_metrics
 
 logger = logging.getLogger("worker")

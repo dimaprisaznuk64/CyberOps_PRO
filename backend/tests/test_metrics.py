@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from fastapi.testclient import TestClient
+
 from app.main import app
 from app.services.metrics import describe_path
-from fastapi.testclient import TestClient
 
 
 def test_metrics_exposes_http_requests_total():

@@ -11,7 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, generate_latest
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.websockets import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from gateway.config import settings
 from gateway.headers import security_headers
@@ -302,10 +302,36 @@ async def ws_proxy(websocket: WebSocket, token: str = ""):
                             await websocket.send_bytes(data)
                         else:
                             await websocket.send_text(data)
-                except WebSocketDisconnect:
+                except (WebSocketDisconnect, websockets.exceptions.ConnectionClosed):
                     return
 
-            await asyncio.gather(browser_to_upstream(), upstream_to_browser())
+            # Хто з двох напрямків завершився — той вирішує долю з'єднання.
+            # `gather` тут був пасткою: він чекає ОБИДВА, а коли браузер
+            # від'єднується, `browser_to_upstream` повертається, поки
+            # `upstream_to_browser` намерло чекає наступне повідомлення в
+            # `async for`. Жоден не доходив до кінця, `async with` не виходив,
+            # тож upstream-з'єднання лишалося відкритим — навіки, до
+            # рестарту сервісу. Кожне відключення браузера лишало з'єднання
+            # й дві coroutine в підвішеному стані; `docker stop` через це
+            # теж зависав (uvicorn чекає на завершення websocket-обробників).
+            browser_task = asyncio.create_task(browser_to_upstream())
+            upstream_task = asyncio.create_task(upstream_to_browser())
+            try:
+                done, _pending = await asyncio.wait(
+                    (browser_task, upstream_task), return_when=asyncio.FIRST_COMPLETED
+                )
+            finally:
+                for task in (browser_task, upstream_task):
+                    task.cancel()
+                await asyncio.gather(browser_task, upstream_task, return_exceptions=True)
+
+            # `websocket.disconnect` від браузера — це нормальне завершення
+            # релею, а не помилка: `websocket.close()` після нього лише
+            # плодить попередження. Розрізняємо за першим завершеним напрямком.
+            if browser_task in done:
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.close()
+                return
     except (WebSocketDisconnect, websockets.exceptions.ConnectionClosed):
         return
     except Exception as exc:

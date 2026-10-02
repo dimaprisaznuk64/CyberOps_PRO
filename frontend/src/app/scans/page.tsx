@@ -24,15 +24,27 @@ export default function ScansPage() {
 
   const load = useCallback(async () => {
     try {
-      setScans(await get<Scan[]>("/api/v1/scans"));
+      const data = await get<Scan[]>("/api/v1/scans");
+      setScans(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("common.error"));
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Оновлюємо список сканів, поки є хоч один у статусі running.
+  // `running` лишався на екрані до ручного F5 (v1.25): додаємо polling.
+  useEffect(() => {
+    const hasRunning = scans?.some((s) => s.status === "running" || s.status === "pending");
+    if (!hasRunning) return undefined;
+    const id = setInterval(() => {
+      load();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [scans, load]);
 
   useEffect(() => {
     if (canCreate) {
@@ -114,8 +126,8 @@ export default function ScansPage() {
       )}
 
       <div className="panel">
-        <h3>{t("scans.history", { count: scans.length })}</h3>
-        {scans.length === 0 && <div className="empty">{t("scans.none")}</div>}
+        <h3>{t("scans.history", { count: scans?.length ?? 0 })}</h3>
+        {scans && scans.length === 0 && <div className="empty">{t("scans.none")}</div>}
         <table>
           <thead>
             <tr>
@@ -128,7 +140,7 @@ export default function ScansPage() {
             </tr>
           </thead>
           <tbody>
-            {scans.map((s) => (
+            {scans?.map((s) => (
               <tr key={s.id}>
                 <td>
                   <Link href={`/scans/${s.id}`}>#{s.id}</Link>

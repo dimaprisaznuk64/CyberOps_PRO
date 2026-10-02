@@ -28,8 +28,13 @@ jobs:
           pip install -r requirements.txt
 
       - name: Ruff check
-        working-directory: backend
-        run: python -m ruff check app tests ../workers ../services ../gateway
+        # Корінь репозиторію, а не `backend/`: конфіг один (`ruff.toml` у корені)
+        # і він має бачити всі пакети разом. Раніше gate запускався з `backend/`
+        # з переліком аргументів, тож не перевіряв `scripts/` — де жив
+        # `demo.py`, який ніхто не лінтував (v1.25).
+        #
+        # `.kilo/` — робочі копії агента всередині репозиторію, не наш код.
+        run: python -m ruff check backend gateway workers services scripts --exclude .kilo
 
       - name: Tests
         working-directory: backend
@@ -72,9 +77,15 @@ jobs:
           bandit -r backend/app backend/tests gateway workers services -ll
 
       - name: pip-audit (залежності з відомим CVE)
+        # Обидва файли, а не лише backend: gateway — окремий сервіс із власними
+        # залежностями (Starlette, websockets, opentelemetry), і вони довго не
+        # сканувалися. Той самий `starlette` у backend тримався на 1.7.*, поки
+        # gateway на 0.115 — тобто security-політика була нерівномірною, а
+        # pip-audit бачив тільки половину проєкту.
         run: |
-          pip install -r backend/requirements.txt pip-audit
+          pip install -r backend/requirements.txt -r gateway/requirements.txt pip-audit
           pip-audit -r backend/requirements.txt
+          pip-audit -r gateway/requirements.txt
 
       - name: Trivy (CVE у залежностях)
         uses: aquasecurity/setup-trivy@v0.2.6

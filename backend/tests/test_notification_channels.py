@@ -4,6 +4,7 @@ from email.message import EmailMessage
 from typing import ClassVar
 
 import pytest
+
 from app.models.notification import (
     CHANNEL_EMAIL,
     CHANNEL_TELEGRAM,
@@ -16,7 +17,6 @@ from app.models.notification import (
 )
 from app.models.user import User
 from app.services import notifications as notify
-
 from tests.conftest import login
 from tests.test_findings import _user_id
 

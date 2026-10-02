@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from app.config import MIN_JWT_SECRET_BYTES, Settings
 from pydantic import ValidationError
+
+from app.config import MIN_JWT_SECRET_BYTES, Settings
 
 yaml = pytest.importorskip("yaml", reason="PyYAML приходить з uvicorn[standard]")
 

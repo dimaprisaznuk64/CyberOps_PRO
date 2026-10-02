@@ -4,12 +4,13 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import pytest
-from app.config import settings
-from app.services import tracing
-from app.services.tracing import get_tracer, init_tracing, reset_tracing, setup_tracing
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+from app.config import settings
+from app.services import tracing
+from app.services.tracing import get_tracer, init_tracing, reset_tracing, setup_tracing
 
 
 @pytest.fixture

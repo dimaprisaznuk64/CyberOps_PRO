@@ -1,6 +1,0 @@
-target-version = "py313"
-line-length = 100
-
-[lint]
-select = ["E", "F", "I", "UP", "B", "RUF"]
-ignore = ["B008", "RUF001", "RUF002", "RUF003"]

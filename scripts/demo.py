@@ -20,7 +20,14 @@ class DemoError(Exception):
     pass
 
 
-def _request(base: str, method: str, path: str, token: str | None = None, data=None, timeout: int = 30):
+def _request(
+    base: str,
+    method: str,
+    path: str,
+    token: str | None = None,
+    data=None,
+    timeout: int = 30,
+):
     body = None
     headers = {}
     if data is not None:
@@ -139,11 +146,16 @@ def run(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="CyberOps PRO demo")
-    parser.add_argument("--base", default=DEFAULT_BASE, help=f"gateway URL (default {DEFAULT_BASE})")
+    parser.add_argument(
+        "--base", default=DEFAULT_BASE, help=f"gateway URL (default {DEFAULT_BASE})"
+    )
     parser.add_argument("--username", default=f"demo_{int(time.time())}", help="demo username")
     parser.add_argument("--password", default="DemoPass123", help="demo password")
-    parser.add_argument("--host", default="vulnerable-api",
-                        help="scan target; with security-lab up use vulnerable-api/vulnerable-web/test-db")
+    parser.add_argument(
+        "--host",
+        default="vulnerable-api",
+        help="scan target; with security-lab up use vulnerable-api/vulnerable-web/test-db",
+    )
     parser.add_argument("--wait", type=int, default=90, help="max wait seconds for scan")
     parser.add_argument("--admin-username", default=os.environ.get("ADMIN_USERNAME", "admin"),
                         help="admin, created at auth startup from ADMIN_USERNAME/ADMIN_PASSWORD")

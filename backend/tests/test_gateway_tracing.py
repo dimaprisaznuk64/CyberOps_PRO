@@ -6,13 +6,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.trace import SpanKind
-
 from gateway.config import settings as gateway_settings
 from gateway.tracing import get_tracer as gw_get_tracer
 from gateway.tracing import init_tracing, reset_tracing, setup_tracing
+from httpx import ASGITransport, AsyncClient
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 
 @pytest.fixture

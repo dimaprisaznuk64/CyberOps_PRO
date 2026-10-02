@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import pytest
-
 from gateway.config import settings
 from gateway.headers import CSP_STATIC, CSP_STRICT, security_headers
 from gateway.main import app as gateway_app
 from gateway.ratelimit import BUCKET_API, BUCKET_AUTH, TokenBucketLimiter
+
 from tests.conftest import login
 
 # Ліміти ставимо вручну: тест має бути детермінованим, а не залежати від .env

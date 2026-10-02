@@ -1,18 +1,33 @@
-fastapi==0.141.*
-uvicorn[standard]==0.34.*
+# Точні піни — див. пояснення в backend/requirements.txt: `==X.Y.*` не
+# фіксує патч, тому образ можна було не відтворити. Значення — перевірені,
+# не «останні доступні».
+
+# `websockets` тут пряма залежність, а не «рахуємо разом із uvicorn»: gateway
+# викликає `websockets.connect()` у релеї `/ws`, тож це наш код, а не деталь
+# реалізації сервера. Раніше стояло `==12.*`, поки тести й локальне оточення
+# підхоплювали 17.1 транзитивно — два середовища мовчки розійшлися, і жодне не
+# перевіряло друге.
+#
+# Значення 17.1 перевірене: backend/tests/test_gateway_ws_relay.py піднімає
+# справжній uvicorn і справжній релей через `websockets.connect` (5 тестів).
+# Раніше релей не мав жодного тесту, тож «те, що реально працює» для нього
+# було невідомим. Перевірено також на 12.0 — працює, але 17.1 це те, на чому
+# проходять CI й 259 тестів, тож пін має називати саме цю версію.
+fastapi==0.141.1
+uvicorn[standard]==0.34.3
 # FastAPI не пінить верхню межу starlette, а CVE живуть саме в ньому —
 # фіксуємо версію явно, інакше pip-audit бачить старі CVE. Та сама причина,
 # що в backend/requirements.txt: gateway довго залишався на 0.115, поки
 # бекенд уже був на 0.141, тому security-політика в проєкті була нерівномірною.
-starlette==1.7.*
-httpx==0.*
-pyjwt[crypto]==2.*
-pydantic==2.*
-pydantic-settings==2.*
-prometheus-client==0.21.*
-websockets==12.*
-opentelemetry-api==1.*
-opentelemetry-sdk==1.*
-opentelemetry-exporter-otlp-proto-http==1.*
-opentelemetry-instrumentation-fastapi==0.*
-opentelemetry-instrumentation-httpx==0.*
+starlette==1.7.0
+httpx==0.28.1
+pyjwt[crypto]==2.14.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+prometheus-client==0.21.1
+websockets==17.1
+opentelemetry-api==1.45.0
+opentelemetry-sdk==1.45.0
+opentelemetry-exporter-otlp-proto-http==1.45.0
+opentelemetry-instrumentation-fastapi==0.66b0
+opentelemetry-instrumentation-httpx==0.66b0
