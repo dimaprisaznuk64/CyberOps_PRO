@@ -29,6 +29,25 @@ spec:
           ports:
             - containerPort: 9091
               name: metrics
+          # Воркер без живої перевірки може тихо перестати брати завдання:
+          # підвіс на споживанні не виглядає як CrashLoop, pod лишається
+          # Running, а скан назавжди висить у pending. K8s не бачить різниці
+          # між «працює» і «завис» без перевірки, тож перевіряємо явно.
+          #
+          # `inspect ping` без `-d` завершується кодом 0 навіть коли ніхто не
+          # відповів (порожній вивід), тож така перевірка завжди була б зеленою.
+          # `-d celery@$(hostname)` відповідає лише цей конкретний воркер, а
+          # `grep -q pong` робить «мовчить» кодом помилки — саме це треба.
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - celery -A workers.celery_app inspect ping -d "celery@$(hostname)" | grep -q pong
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
 ---
 apiVersion: v1
 kind: Service

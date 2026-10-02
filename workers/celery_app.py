@@ -4,6 +4,7 @@ from celery import Celery
 from prometheus_client import start_http_server
 
 from app.config import settings
+from app.services.broker import transport_options as broker_transport_options
 from app.services.tracing import init_tracing
 
 # Celery не має FastAPI-додатка, але спани у tasks.py створюються вручну —
@@ -12,6 +13,7 @@ init_tracing()
 
 celery_app = Celery("cyberops_worker", broker=settings.celery_broker_url)
 celery_app.conf.broker_connection_retry_on_startup = True
+celery_app.conf.broker_transport_options = broker_transport_options()
 celery_app.conf.worker_prefetch_multiplier = 1
 celery_app.conf.task_acks_late = True
 celery_app.conf.worker_concurrency = 1

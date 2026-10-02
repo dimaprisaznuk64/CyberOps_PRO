@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://cyberops:cyberops@localhost:5432/cyberops"
 
     celery_broker_url: str = "redis://localhost:6379/0"
+    # Як часто блокуюче читання з брокера перевіряє, чи з'єднання живе.
+    # Redis-транспорт celery бере завдання через BRPOP, і на напівмертвому
+    # TCP-з'єднанні цей виклик не повертається й не падає: воркер лишається
+    # «ready», задавання накопичуються в черзі, а в лозі нуль рядків про
+    # причину (сталося на kind-E2E через 3 хв після старту). Інтервал
+    # перетворює таке зависання на таймаут і перепідключення.
+    celery_broker_health_check_interval: int = 30
 
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     events_exchange: str = "cyberops.events"

@@ -143,6 +143,18 @@ jobs:
           echo "=== events ==="
           kubectl -n cyberops get events --sort-by=.lastTimestamp | tail -40
           echo
+          # Глибина черги і живий воркер — те, чого не видно ані в лозі
+          # воркера, ані в рядку про падіння. На kind-E2E скан VISів у
+          # pending: повідомлення лежало в черзі, а воркер не читав її, і в
+          # його лозі не було жодного рядка. Ці два рядки відрізняють
+          # «producer не поклав» від «consumer не взяв» однією командою.
+          echo "=== черга celery (глибина) ==="
+          kubectl -n cyberops exec deploy/redis -- redis-cli LLEN celery || true
+          echo "=== воркер відповідає? ==="
+          WORKER_POD=$(kubectl -n cyberops get pod -l app=worker -o jsonpath='{.items[0].metadata.name}')
+          kubectl -n cyberops exec "$WORKER_POD" -- \
+            celery -A workers.celery_app inspect ping -d "celery@$WORKER_POD" || true
+          echo
           for p in $(kubectl -n cyberops get pods -o name); do
             echo "=== $p: describe ==="
             kubectl -n cyberops describe "$p" | sed -n '/^Events:/,$p'

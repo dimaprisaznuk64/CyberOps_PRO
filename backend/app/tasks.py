@@ -3,10 +3,12 @@ from __future__ import annotations
 from celery import Celery
 
 from app.config import settings
+from app.services.broker import transport_options
 from app.services.tracing import inject_celery_headers
 
 celery_client = Celery("cyberops", broker=settings.celery_broker_url)
 celery_client.conf.broker_connection_retry_on_startup = True
+celery_client.conf.broker_transport_options = transport_options()
 
 SCAN_TASK_NAME = "workers.tasks.run_scan"
 NOTIFICATION_DELIVERY_TASK_NAME = "workers.tasks.deliver_notification"
