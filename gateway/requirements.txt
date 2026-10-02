@@ -21,7 +21,7 @@ uvicorn[standard]==0.34.3
 # бекенд уже був на 0.141, тому security-політика в проєкті була нерівномірною.
 starlette==1.7.0
 httpx==0.28.1
-pyjwt[crypto]==2.14.0
+pyjwt[crypto]==2.15.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
 prometheus-client==0.21.1
